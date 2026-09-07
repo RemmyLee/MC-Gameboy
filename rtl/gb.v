@@ -80,11 +80,14 @@ module gb (
 	output [1:0] joy_p54,
 	input  [3:0] joy_din,
 
-	// MiSTer Control (rtl/mc): every write into the work RAM (the CPU's, and
-	// a save-state load's through port B), the joypad accesses the lag rule
-	// counts, and a live read port on the save-state register bus
+	// MiSTer Control (rtl/mc): every write into the work RAM and the zero
+	// page RAM (the CPU's, and a save-state load's through port B), as an
+	// address in the telemetry image (the CPU address space: WRAM bank 0 at
+	// $C000, bank 1 at $D000, GBC banks 2-7 at bank<<12, HRAM at $FF80), the
+	// joypad accesses the lag rule counts, and a live read port on the
+	// save-state register bus
 	output        mc_wram_wr,
-	output [14:0] mc_wram_addr,
+	output [15:0] mc_wram_addr,
 	output  [7:0] mc_wram_din,
 	output        mc_joy_read,       // one clock per CPU read of $FF00 with a row selected (p54 != 11)
 	output        mc_joy_strobe,     // one clock per CPU write of $FF00
@@ -1237,13 +1240,28 @@ assign SaveStateBus_Adr = savestate_busy ? SaveStateBus_Adr_ss : mc_bus_adr;
 assign mc_bus_dout = SaveStateBus_Dout;
 assign mc_bus_free = ~savestate_busy;
 
-// Work RAM writes: the CPU's (wram_wren is a level the dpram takes on every
-// clk_cpu edge; the shadow takes it once and again on an address or data
-// change) and a save-state load's on port B (Savestate_RAMRWrEn[0], one byte
-// per clk_sys). The CPU sleeps during a load, so the two never overlap.
-assign mc_wram_wr   = wram_wren | Savestate_RAMRWrEn[0];
-assign mc_wram_addr = Savestate_RAMRWrEn[0] ? Savestate_RAMAddr[14:0] : wram_addr;
-assign mc_wram_din  = Savestate_RAMRWrEn[0] ? Savestate_RAMWriteData[7:0] : cpu_do;
+// Work RAM and zero page RAM writes: the CPU's (wram_wren and cpu_wr_zpram
+// are levels the dprams take on every clk_cpu edge; the shadow takes one
+// once and again on an address or data change) and a save-state load's on
+// port B (Savestate_RAMRWrEn[0] for WRAM, [3] for HRAM, one byte per
+// clk_sys). The CPU sleeps during a load, so the sources never overlap.
+//
+// The image is the CPU address space, so a RAM map is written in CPU
+// addresses: WRAM bank 0 at $C000-$CFFF, bank 1 at $D000-$DFFF, GBC banks
+// 2-7 at bank<<12 ($2000-$7FFF, the ROM area the image has no other use
+// for), HRAM $FF80-$FFFE at $FF80.
+function [15:0] mc_wram_img(input [14:0] a);
+	mc_wram_img = (a[14:12] == 3'd0) ? {4'hC, a[11:0]} :
+	              (a[14:12] == 3'd1) ? {4'hD, a[11:0]} :
+	                                   {1'b0, a};
+endfunction
+
+assign mc_wram_wr   = wram_wren | cpu_wr_zpram | Savestate_RAMRWrEn[0] | Savestate_RAMRWrEn[3];
+assign mc_wram_addr = Savestate_RAMRWrEn[0] ? mc_wram_img(Savestate_RAMAddr[14:0]) :
+                      Savestate_RAMRWrEn[3] ? {9'h1FF, Savestate_RAMAddr[6:0]} :
+                      cpu_wr_zpram          ? {9'h1FF, cpu_addr[6:0]} :
+                                              mc_wram_img(wram_addr);
+assign mc_wram_din  = (Savestate_RAMRWrEn[0] | Savestate_RAMRWrEn[3]) ? Savestate_RAMWriteData[7:0] : cpu_do;
 
 // Joypad accesses. A read of $FF00 counts as a poll only when a row is
 // selected (p54 != 2'b11): that is when libgambatte calls updateInput() and

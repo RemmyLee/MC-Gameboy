@@ -41,7 +41,7 @@ reg wr = 0; reg [RAM_ADDR_W-1:0] wr_addr = 0; reg [7:0] wr_data = 0;
 wire hold; wire [RAM_ADDR_W-1:0] rd_addr; wire [7:0] rd_data; wire [RAM_ADDR_W-4:0] bm_addr; wire [7:0] bm_data; wire torn;
 reg clear = 0;
 
-mc_shadow_ram #(.ADDR_W(RAM_ADDR_W), .FIFO_W((RAM_ADDR_W == 15) ? 11 : 9)) sh (.clk(clk), .clear(clear), .wr(wr), .wr_addr(wr_addr), .wr_data(wr_data),
+mc_shadow_ram #(.ADDR_W(RAM_ADDR_W), .FIFO_W((RAM_ADDR_W >= 15) ? RAM_ADDR_W - 4 : 9)) sh (.clk(clk), .clear(clear), .wr(wr), .wr_addr(wr_addr), .wr_data(wr_data),
 	.hold(hold), .rd_addr(rd_addr), .rd_data(rd_data), .bm_addr(bm_addr), .bm_data(bm_data), .torn(torn));
 
 integer errors = 0;

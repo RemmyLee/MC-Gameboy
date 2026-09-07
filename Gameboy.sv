@@ -273,7 +273,7 @@ wire [63:0] mc_ddr_din;
 wire        mc_ddr_req, mc_ddr_ready;
 wire [31:0] mc_frame;
 wire        mc_wr, mc_joy_read, mc_strobe;
-wire [14:0] mc_wr_addr;
+wire [15:0] mc_wr_addr;
 wire  [7:0] mc_wr_data;
 
 // replay
@@ -1241,12 +1241,15 @@ mc_replay #(.ENTRY_BYTES(8), .CLK_HZ(32'd33554432)) mc_replay
 );
 
 wire        mc_ram_hold;
-wire [14:0] mc_ram_rd_addr;
+wire [15:0] mc_ram_rd_addr;
 wire  [7:0] mc_ram_rd_data, mc_bm_data;
-wire [11:0] mc_bm_addr;
+wire [12:0] mc_bm_addr;
 wire        mc_ram_torn;
 
-mc_shadow_ram #(.ADDR_W(15), .FIFO_W(11)) mc_shadow_ram
+// 64 KB image (the CPU address space, see gb.v), 4096 pending writes: the
+// read-out of 64 KB takes about 3.3 ms per frame and the CPU can write
+// every other cycle at double speed (about 3,300 writes in that time).
+mc_shadow_ram #(.ADDR_W(16), .FIFO_W(12)) mc_shadow_ram
 (
 	.clk(clk_sys),
 	.clear(cart_download),
@@ -1266,10 +1269,10 @@ wire [2:0] mc_sys_type = isGBC ? 3'd1 : (|sgb_en) ? 3'd2 : 3'd0;
 
 mc_telemetry #(
 	.MAGIC(64'h01000042_472D434D),   // "MC-GB\0\0\1"
-	.RAM_ADDR_W(15),
+	.RAM_ADDR_W(16),
 	.PAD_COUNT(4),
 	.REGS_KIND(1),                   // no packed CPU word: the registers are on the bus (reg_savestates.vhd index 1..5)
-	.SLOT_WORDS(25'd5120)            // 40960 byte slots
+	.SLOT_WORDS(25'd9344)            // 74752 byte slots (>= 73 + 65536 * 9 / 64 words)
 ) mc_telemetry
 (
 	.clk(clk_sys),
