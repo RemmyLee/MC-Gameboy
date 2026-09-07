@@ -1228,7 +1228,7 @@ mc_replay #(.ENTRY_BYTES(8), .CLK_HZ(32'd33554432)) mc_replay
 	.clk(clk_sys),
 	.reset(reset),
 	.downloading(cart_download),
-	.vblank(lcd_vsync),
+	.vblank(lcd_mode == 2'b01),   // entry N at the PPU's vblank entry (line 144), where GBHawk latches its pads; with lcd_vsync (line 0) a one-frame tap read during the picture landed a frame late (SML2 3746M, 2026-09-07)
 	.joy_read(mc_joy_read),
 	.ddr_addr(mc_rd_addr),
 	.ddr_req(mc_rd_req),
