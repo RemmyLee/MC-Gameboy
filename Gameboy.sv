@@ -52,7 +52,8 @@ assign AUDIO_MIX = status[8:7];
 // 0         1         2         3          4         5         6
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// XXXXXXXXXXX XXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXX
+// XXXXXXXXXXX XXXXXXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXXXXXX
+//                                  bit 51: MiSTer Control telemetry
 
 `include "build_id.v" 
 localparam CONF_STR = {
@@ -120,6 +121,10 @@ localparam CONF_STR = {
 	"P3OR,Rewind Capture,Off,On;",
 	"P3-;",
 	"P3o3,Super Game Boy + GBC,Off,On;",
+
+	"P4,MiSTer Control;",
+	"P4-;",
+	"P4O[51],Telemetry,On,Off;",
 
 	"-;",
 	"R0,Reset;",
@@ -257,6 +262,35 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 );
 
 assign joystick_0 = joy0_unmod[9] ? 16'b0 : joy0_unmod;
+
+// MiSTer Control (rtl/mc): declared here, driven in the telemetry section at
+// the end of the file
+wire  [9:0] mc_bus_adr;
+wire [63:0] mc_bus_dout;
+wire        mc_bus_free;
+wire [24:0] mc_ddr_addr;
+wire [63:0] mc_ddr_din;
+wire        mc_ddr_req, mc_ddr_ready;
+wire [31:0] mc_frame;
+wire        mc_wr, mc_joy_read, mc_strobe;
+wire [14:0] mc_wr_addr;
+wire  [7:0] mc_wr_data;
+
+// replay
+wire        mc_rp_active;
+wire  [7:0] mc_rp_p1, mc_rp_p2, mc_rp_p3, mc_rp_p4, mc_rp_state, mc_rp_gen, mc_rp_entry_bytes;
+wire        mc_rp_armed = (mc_rp_state == 8'd1) || (mc_rp_state == 8'd2);
+wire [31:0] mc_rp_index;
+wire [24:0] mc_rd_addr;
+wire        mc_rd_req, mc_rd_ready;
+wire [63:0] mc_rd_dout;
+
+// the pads the SGB module reads (MiSTer joystick order: bit 0 Right, 1 Left,
+// 2 Down, 3 Up, 4 A, 5 B, 6 Select, 7 Start; rtl/sgb.v joy_dir/joy_buttons)
+wire  [7:0] mc_joy0 = mc_rp_active ? mc_rp_p1 : joystick_0[7:0];
+wire  [7:0] mc_joy1 = mc_rp_active ? mc_rp_p2 : joystick_1[7:0];
+wire  [7:0] mc_joy2 = mc_rp_active ? mc_rp_p3 : joystick_2[7:0];
+wire  [7:0] mc_joy3 = mc_rp_active ? mc_rp_p4 : joystick_3[7:0];
 
 ///////////////////////////////////////////////////
 
@@ -548,6 +582,16 @@ gb gb (
 	.joy_p54     ( joy_p54     ),
 	.joy_din     ( joy_do_sgb  ),
 
+	// MiSTer Control telemetry taps (rtl/mc, wired below)
+	.mc_wram_wr    ( mc_wr        ),
+	.mc_wram_addr  ( mc_wr_addr   ),
+	.mc_wram_din   ( mc_wr_data   ),
+	.mc_joy_read   ( mc_joy_read  ),
+	.mc_joy_strobe ( mc_strobe    ),
+	.mc_bus_adr    ( mc_bus_adr   ),
+	.mc_bus_dout   ( mc_bus_dout  ),
+	.mc_bus_free   ( mc_bus_free  ),
+
 	// interface to the "external" game cartridge
 	.ext_bus_addr( cart_addr  ),
 	.ext_bus_a15 ( cart_a15   ),
@@ -719,10 +763,11 @@ sgb sgb (
 	.clk_vid     ( CLK_VIDEO   ),
 	.ce_pix      ( ce_pix      ),
 
-	.joystick_0  ( joystick_0  ),
-	.joystick_1  ( joystick_1  ),
-	.joystick_2  ( joystick_2  ),
-	.joystick_3  ( joystick_3  ),
+	// MiSTer Control replay: the movie owns all four pads while it runs
+	.joystick_0  ( mc_joy0     ),
+	.joystick_1  ( mc_joy1     ),
+	.joystick_2  ( mc_joy2     ),
+	.joystick_3  ( mc_joy3     ),
 	.joy_p54     ( joy_p54     ),
 	.joy_do      ( joy_do_sgb  ),
 
@@ -885,7 +930,19 @@ ddram ddram
 	.ch1_req(ss_req),
 	.ch1_rnw(ss_rnw),
 	.ch1_be(ss_be),
-	.ch1_ready(ss_ack)
+	.ch1_ready(ss_ack),
+
+	// MiSTer Control telemetry
+	.ch2_addr(mc_ddr_addr),
+	.ch2_din(mc_ddr_din),
+	.ch2_req(mc_ddr_req),
+	.ch2_ready(mc_ddr_ready),
+
+	// MiSTer Control replay
+	.ch3_addr(mc_rd_addr),
+	.ch3_req(mc_rd_req),
+	.ch3_dout(mc_rd_dout),
+	.ch3_ready(mc_rd_ready)
 );
 
 // saving with keyboard/OSD/gamepad
@@ -1050,8 +1107,10 @@ always @(posedge clk_sys) begin
 		sav_pending <= 1'b0;
 end
 
-wire bk_load    = status[9] | new_load;
-wire bk_save    = status[10] | (sav_pending & OSD_STATUS & status[13]);
+// no backup RAM load or save while a MiSTer Control movie is armed or
+// running: the run starts from a clean cartridge, as the emulator did
+wire bk_load    = (status[9] | new_load) & ~mc_rp_armed;
+wire bk_save    = (status[10] | (sav_pending & OSD_STATUS & status[13])) & ~mc_rp_armed;
 reg  bk_loading = 0;
 reg  bk_state   = 0;
 
@@ -1073,7 +1132,7 @@ always @(posedge clk_sys) begin
 			sd_rd <=  bk_load;
 			sd_wr <= ~bk_load;
 		end
-		if(old_downloading & ~downloading & |img_size & bk_ena) begin
+		if(old_downloading & ~downloading & |img_size & bk_ena & ~mc_rp_armed) begin
 			bk_state <= 1;
 			bk_loading <= 1;
 			sd_lba <= 0;
@@ -1140,6 +1199,113 @@ always @(posedge clk_sys) begin
 	if(~bk_state | save_busy) {save_rd, save_wr} <= 0;
 end
 
+/**********************************************************/
+/*************     MiSTer Control telemetry   *************/
+/**********************************************************/
+// rtl/mc: a per-frame snapshot (the save state register bus, the 32 KB work
+// RAM, the pads the game read) written to DDR3 at 0x3C000000 for the MiSTer
+// Control app, and a movie replay from 0x3C100000. Layouts in
+// rtl/mc/mc_telemetry.sv and rtl/mc/mc_replay.sv; the Gameboy taps are the
+// mc_* ports of rtl/gb.v. MC-NES is the reference wiring (NES.sv).
 
+
+// the pads as the game last read them
+reg  [7:0] mc_j1, mc_j2, mc_j3, mc_j4;
+always @(posedge clk_sys) if (mc_joy_read) begin
+	mc_j1 <= mc_joy0;
+	mc_j2 <= mc_joy1;
+	mc_j3 <= mc_joy2;
+	mc_j4 <= mc_joy3;
+end
+
+mc_replay #(.ENTRY_BYTES(8), .CLK_HZ(32'd33554432)) mc_replay
+(
+	.clk(clk_sys),
+	.reset(reset),
+	.downloading(cart_download),
+	.vblank(lcd_vsync),
+	.joy_read(mc_joy_read),
+	.ddr_addr(mc_rd_addr),
+	.ddr_req(mc_rd_req),
+	.ddr_dout(mc_rd_dout),
+	.ddr_ready(mc_rd_ready),
+	.active(mc_rp_active),
+	.p1(mc_rp_p1),
+	.p2(mc_rp_p2),
+	.p3(mc_rp_p3),
+	.p4(mc_rp_p4),
+	.index(mc_rp_index),
+	.state(mc_rp_state),
+	.gen(mc_rp_gen),
+	.entry_bytes(mc_rp_entry_bytes)
+);
+
+wire        mc_ram_hold;
+wire [14:0] mc_ram_rd_addr;
+wire  [7:0] mc_ram_rd_data, mc_bm_data;
+wire [11:0] mc_bm_addr;
+wire        mc_ram_torn;
+
+mc_shadow_ram #(.ADDR_W(15), .FIFO_W(11)) mc_shadow_ram
+(
+	.clk(clk_sys),
+	.clear(cart_download),
+	.wr(mc_wr),
+	.wr_addr(mc_wr_addr),
+	.wr_data(mc_wr_data),
+	.hold(mc_ram_hold),
+	.rd_addr(mc_ram_rd_addr),
+	.rd_data(mc_ram_rd_data),
+	.bm_addr(mc_bm_addr),
+	.bm_data(mc_bm_data),
+	.torn(mc_ram_torn)
+);
+
+// system type: 0 DMG, 1 GBC, 2 SGB (the emulator's console choice)
+wire [2:0] mc_sys_type = isGBC ? 3'd1 : (|sgb_en) ? 3'd2 : 3'd0;
+
+mc_telemetry #(
+	.MAGIC(64'h01000042_472D434D),   // "MC-GB\0\0\1"
+	.RAM_ADDR_W(15),
+	.PAD_COUNT(4),
+	.REGS_KIND(1),                   // no packed CPU word: the registers are on the bus (reg_savestates.vhd index 1..5)
+	.SLOT_WORDS(25'd5120)            // 40960 byte slots
+) mc_telemetry
+(
+	.clk(clk_sys),
+	.reset(reset),
+	.enable(~status[51]),
+	.vblank(lcd_vsync),
+	.scanline(v_cnt),
+	.cycle(h_cnt),
+	.clk_hz(32'd33554432),
+	.sys_type(mc_sys_type),
+	.cpu_regs(64'd0),
+	.bus_adr(mc_bus_adr),
+	.bus_dout(mc_bus_dout),
+	.bus_free(mc_bus_free),
+	.ram_hold(mc_ram_hold),
+	.ram_rd_addr(mc_ram_rd_addr),
+	.ram_rd_data(mc_ram_rd_data),
+	.bm_addr(mc_bm_addr),
+	.bm_data(mc_bm_data),
+	.ram_torn(mc_ram_torn),
+	.joy1_latched(mc_j1),
+	.joy2_latched(mc_j2),
+	.joy3_latched(mc_j3),
+	.joy4_latched(mc_j4),
+	.joy_strobe(mc_strobe),
+	.joy_read(mc_joy_read),
+	.replay_active(mc_rp_active),
+	.replay_index(mc_rp_index),
+	.replay_state(mc_rp_state),
+	.replay_gen(mc_rp_gen),
+	.replay_entry_bytes(mc_rp_entry_bytes),
+	.ddr_addr(mc_ddr_addr),
+	.ddr_din(mc_ddr_din),
+	.ddr_req(mc_ddr_req),
+	.ddr_ready(mc_ddr_ready),
+	.frame(mc_frame)
+);
 
 endmodule

@@ -38,3 +38,9 @@ c5_pin_model_dump.txt
 *_netlist
 *.cdf
 BootROMs/obj/*
+build.log
+build.start
+build.end
+out/
+*.qws
+sim/*.vvp

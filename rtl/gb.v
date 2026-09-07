@@ -79,6 +79,18 @@ module gb (
 
 	output [1:0] joy_p54,
 	input  [3:0] joy_din,
+
+	// MiSTer Control (rtl/mc): every write into the work RAM (the CPU's, and
+	// a save-state load's through port B), the joypad accesses the lag rule
+	// counts, and a live read port on the save-state register bus
+	output        mc_wram_wr,
+	output [14:0] mc_wram_addr,
+	output  [7:0] mc_wram_din,
+	output        mc_joy_read,       // one clock per CPU read of $FF00 with a row selected (p54 != 11)
+	output        mc_joy_strobe,     // one clock per CPU write of $FF00
+	input   [9:0] mc_bus_adr,
+	output [63:0] mc_bus_dout,
+	output        mc_bus_free,       // 0 while a save or load owns the bus
 	
 	output speed,   //GBC
 	output DMA_on,
@@ -133,7 +145,7 @@ module gb (
 
 // savestates
 wire [63:0] SaveStateBus_Din;
-wire [9:0] SaveStateBus_Adr;
+wire [9:0] SaveStateBus_Adr, SaveStateBus_Adr_ss;
 wire SaveStateBus_wren, SaveStateBus_rst;
   
 wire [15:0] Savestate_RAMWriteData;
@@ -1158,7 +1170,7 @@ gb_savestates gb_savestates (
    .lcd_vsync              (lcd_vsync),
    
    .BUS_Din                (SaveStateBus_Din), 
-   .BUS_Adr                (SaveStateBus_Adr), 
+   .BUS_Adr                (SaveStateBus_Adr_ss), 
    .BUS_wren               (SaveStateBus_wren), 
    .BUS_rst                (SaveStateBus_rst), 
    .BUS_Dout               (SaveStateBus_Dout),
@@ -1211,5 +1223,37 @@ gb_statemanager #(58720256, 33554432) gb_statemanager (
 
 assign sleep_savestate = sleep_rewind | sleep_savestates;
 assign savestate_ovr = loading_savestate | saving_savestate;
+
+// --------------------------------------------------------------------
+// ------------------------ MiSTer Control ----------------------------
+// --------------------------------------------------------------------
+
+// The register bus reads combinationally from its address (bus_savestates.vhd
+// eReg_SavestateV: BUS_Dout(i) <= Din(i) when BUS_Adr = AdrI). While no save
+// or load runs the telemetry block owns the address, the same mux MC-NES
+// uses (nes.v). A save or load takes it back for its whole duration and the
+// snapshot marks its register words invalid for that frame.
+assign SaveStateBus_Adr = savestate_busy ? SaveStateBus_Adr_ss : mc_bus_adr;
+assign mc_bus_dout = SaveStateBus_Dout;
+assign mc_bus_free = ~savestate_busy;
+
+// Work RAM writes: the CPU's (wram_wren is a level the dpram takes on every
+// clk_cpu edge; the shadow takes it once and again on an address or data
+// change) and a save-state load's on port B (Savestate_RAMRWrEn[0], one byte
+// per clk_sys). The CPU sleeps during a load, so the two never overlap.
+assign mc_wram_wr   = wram_wren | Savestate_RAMRWrEn[0];
+assign mc_wram_addr = Savestate_RAMRWrEn[0] ? Savestate_RAMAddr[14:0] : wram_addr;
+assign mc_wram_din  = Savestate_RAMRWrEn[0] ? Savestate_RAMWriteData[7:0] : cpu_do;
+
+// Joypad accesses. A read of $FF00 counts as a poll only when a row is
+// selected (p54 != 2'b11): that is when libgambatte calls updateInput() and
+// BizHawk's Gambatte core clears IsLagFrame (gambatte-speedrun
+// libgambatte/src/memory.cpp nontrivial_ff_read case 0x00; BizHawk
+// Gambatte.cs ControllerCallback). RD_n is low for more than one CPU clock
+// enable per read, so the pulse is its first clock only.
+reg mc_joy_rd_d = 0;
+always @(posedge clk_sys) if (ce_cpu) mc_joy_rd_d <= sel_joy & ~cpu_rd_n;
+assign mc_joy_read   = ce_cpu & sel_joy & ~cpu_rd_n & ~mc_joy_rd_d & (p54 != 2'b11);
+assign mc_joy_strobe = ce_cpu & sel_joy & ~cpu_wr_n_edge;
 
 endmodule
