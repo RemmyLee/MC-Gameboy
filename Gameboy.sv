@@ -1096,14 +1096,19 @@ always @(posedge clk_sys) begin
 	//Save file always mounted in the end of downloading state.
 	if(downloading && img_mounted && !img_readonly) bk_ena <= 1;
 
+	// A MiSTer Control movie drops the pending auto-load instead of holding
+	// it: held, it fired the moment the movie ended and a load resets the
+	// console, which hid the run's ending behind the title screen (seen with
+	// Super Mario Land 2, 2026-09-07). The run's own writes into cartridge RAM
+	// are never saved over the owner's file either.
 	if (old_downloading & ~downloading & sav_supported)
 		new_load <= 1'b1;
-	else if (bk_state)
+	else if (bk_state | mc_rp_armed)
 		new_load <= 1'b0;
 
-	if ((cram_wr | cram_bram_wr) & ~OSD_STATUS & sav_supported)
+	if ((cram_wr | cram_bram_wr) & ~OSD_STATUS & sav_supported & ~mc_rp_armed)
 		sav_pending <= 1'b1;
-	else if (bk_state)
+	else if (bk_state | mc_rp_armed)
 		sav_pending <= 1'b0;
 end
 
