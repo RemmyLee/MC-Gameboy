@@ -40,7 +40,8 @@ read in that source before the wiring was written.
 | Shadow copy | `mc_shadow_ram #(.ADDR_W(15), .FIFO_W(11))` fed by `wram_wren \| Savestate_RAMRWrEn[0]`; the bitmap clears on `cart_download` | `Gameboy.sv` MiSTer Control section |
 | Register bus | 64 bit, 10 bit address, combinational read (`BUS_Dout(i) <= Din(i) when BUS_Adr = AdrI`); `gb_savestates` drives `BUS_Adr`, `savestate_busy` is `'0' when state = IDLE else '1'`. The address is muxed as in MC-NES `nes.v:886`: `savestate_busy ? SaveStateBus_Adr_ss : mc_bus_adr` | `rtl/bus_savestates.vhd:35-110`; `rtl/gb_savestates.vhd:122`; `rtl/gb.v` MiSTer Control section |
 | Register index map | GBSE 0, CPUREGS 1, T80 2..5, Timer 6, HDMA 7, Link 8, Video 9-10, palettes 11-26, Video3 27, Sound 28-30, Top 31, Ext 32, Wave 33-36, Ext2 37, Top2 38 | `rtl/reg_savestates.vhd:12-44` |
-| Frame edge | `lcd_vsync` (`vsync <= !v_cnt` at end of line: high on line 0) | `rtl/video.v:685`, `:692`; `rtl/gb.v:78` |
+| Frame edge (telemetry slot) | `lcd_vsync` (`vsync <= !v_cnt` at end of line: high on line 0) | `rtl/video.v:685`, `:692`; `rtl/gb.v:78` |
+| Replay latch (entry N presented) | rising edge of `lcd_mode == 2'b01`: `mode_vblank` = `vblank_l` (DMG: `& vblank_t`), `vblank = v_cnt >= 144` latched a few cycles after the end of line 143. GBHawk latches its pads at its vblank entry, and a game that reads `$FF00` during the picture must see the new entry from line 144 on, not from line 0 | `rtl/video.v:280`, `:304-313`, `:395-398`; `rtl/mc/mc_replay.sv:94`; `Gameboy.sv` mc_replay instance |
 | Slot scanline and cycle | `v_cnt`, `h_cnt` of the `lcd` converter (informational) | `Gameboy.sv:692`, lcd instance |
 | Reset and download | `reset = RESET \| status[0] \| buttons[1] \| cart_download \| boot_download \| bk_loading`; `cart_download = ioctl_download && (filetype[5:0] == 6'h01 \|\| filetype == 8'h80)` | `Gameboy.sv:546`, `:307` |
 | Backup RAM while a movie is armed | `bk_load`, `bk_save` and the auto-load after a download are gated by `~mc_rp_armed` (state 1 or 2), as MC-NES does | `Gameboy.sv` bk section; MC-NES `NES.sv:1199-1237` |
@@ -78,6 +79,23 @@ takes about 3.3 ms per frame and a GBC at double speed can write every other
 cycle (about 3,300 writes in that time).
 
 ## Reference numbers
+
+`MC-Gameboy_20260908d.rbf` (commit `d7d3ec2`, default seed, 2026-09-07, `out/MC-Gameboy_20260908d.txt`):
+build c plus the replay latch point at the PPU's vblank entry (`lcd_mode == 2'b01`, line 144,
+where GBHawk latches its pads) instead of `lcd_vsync` (line 0). With line 0 a one-frame tap
+that Super Mario Land 2 read during the picture landed a frame late (3746M, `$CC2A` diverged
+at movie frame 2313); with this build the work RAM matches GBHawk's dump from movie frame
+2238 to the last input (2751).
+
+| Item | Value |
+|---|---|
+| Wall time | 883 s on the 3960X |
+| Logic (ALMs) | 22,339 / 41,910 (53%) |
+| Registers | 28,717 |
+| RAM blocks | 493 / 553 (89%) |
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 1.851 ns / 2.895 ns / 0.116 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908d.rbf` | 4,013,048 bytes, SHA-256 `6bfe2630c0baa1eaa31173efd524e1e25ca4b7cd0140342771b3db299991398a` |
 
 `MC-Gameboy_20260908c.rbf` (commit `832943c`, default seed, 2026-09-07, `out/MC-Gameboy_20260908c.txt`):
 the 64 KB image plus the fix that drops a pending backup RAM auto-load and the run's save
