@@ -60,4 +60,23 @@ the bus words (index 1..5). Replay entries are 8 bytes (`mc_replay
 
 ## Reference numbers
 
-Filled in after the first build on the PC.
+First MC build, `MC-Gameboy_20260908.rbf` (commit `73455ee`, default seed, 2026-09-07,
+`out/MC-Gameboy_20260908.txt`):
+
+| Item | Value |
+|---|---|
+| Wall time | 955 s (15 min 55 s) on the 3960X |
+| Logic (ALMs) | 22,201 / 41,910 (53%) |
+| Registers | 28,818 |
+| Block memory | 3,500,725 / 5,662,720 bits (62%), 446 / 553 RAM blocks (81%) |
+| DSP blocks | 35 / 112 |
+| Setup slack, clk_sys (pll general[1]) | 1.759 ns (TNS 0) |
+| Setup slack, clk_ram (pll general[0]) | 2.955 ns (TNS 0) |
+| Setup slack, tightest | 0.526 ns, HDMI PLL (TNS 0) |
+| Critical warnings | 0 |
+| Warnings in `rtl/mc` | 3 (two sized-localparam truncations, one unused register; cleared in `3a35113`, not yet rebuilt) |
+| `MC-Gameboy_20260908.rbf` | 3,933,444 bytes, SHA-256 `f2f6a19ccf5d5d4fdd853792939ab417d4600dc75d78859c14be204237c01523` |
+
+An unmodified upstream build was not run, so the port's own cost in ALMs and RAM blocks is
+not measured. Expected from the design: about 35 RAM blocks (32 KB shadow copy, 2048 x 23
+bit FIFO, 4 KB bitmap) and the telemetry, replay and DDR channel logic.
