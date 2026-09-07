@@ -79,6 +79,21 @@ cycle (about 3,300 writes in that time).
 
 ## Reference numbers
 
+`MC-Gameboy_20260908c.rbf` (commit `832943c`, default seed, 2026-09-07, `out/MC-Gameboy_20260908c.txt`):
+the 64 KB image plus the fix that drops a pending backup RAM auto-load and the run's save
+while a movie is armed (the deferred load fired at the movie's end and its reset hid the
+run's ending).
+
+| Item | Value |
+|---|---|
+| Wall time | 882 s on the 3960X |
+| Logic (ALMs) | 22,147 / 41,910 (53%) |
+| Registers | 28,876 |
+| RAM blocks | 493 / 553 (89%) |
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 2.258 ns / 2.895 ns / 0.569 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908c.rbf` | 4,020,044 bytes, SHA-256 `5739994fc3ffd61ffbc4f28cdd79f7ac3e1f56eaa1687bcbac7c2271be7c3568` |
+
 `MC-Gameboy_20260908b.rbf` (commit `f13d9d5`, default seed, 2026-09-07, the 64 KB image,
 `out/MC-Gameboy_20260908b.txt`):
 
