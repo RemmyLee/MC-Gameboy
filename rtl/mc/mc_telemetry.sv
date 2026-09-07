@@ -119,8 +119,8 @@ module mc_telemetry
 localparam        RAM_BYTES = 1 << RAM_ADDR_W;
 localparam        IDX_W     = RAM_ADDR_W - 3;             // RAM word index width (8 on the NES)
 localparam        BM_IDX_W  = RAM_ADDR_W - 6;             // bitmap word index width (5 on the NES)
-localparam [24:0] RAM_WORDS = RAM_BYTES / 8;
-localparam [24:0] BM_WORDS  = RAM_BYTES / 64;
+localparam [24:0] RAM_WORDS = 25'(RAM_BYTES / 8);
+localparam [24:0] BM_WORDS  = 25'(RAM_BYTES / 64);
 
 // slot word offsets
 localparam [24:0] W_REGS = 25'd8;                        // 0x040
@@ -169,7 +169,7 @@ reg [63:0] snap_regs;
 reg  [8:0] snap_scanline, snap_cycle;
 reg  [7:0] snap_strobes, snap_j1, snap_j2, snap_j3, snap_j4;
 reg [15:0] snap_reads;
-reg        snap_bus_ok, snap_torn;
+reg        snap_bus_ok;
 reg [24:0] slot_base;
 reg [IDX_W-1:0] idx;     // word index within the current section
 reg  [2:0] byte_idx;     // byte being addressed
@@ -285,7 +285,6 @@ always @(posedge clk) begin
 	end
 
 	FLAGS: begin
-		snap_torn <= ram_torn;
 		ram_hold  <= 0;                      // RAM image complete; the FIFO drains
 		write_word(slot_base + 25'd2,
 			{16'd0, snap_j4, snap_j3, 5'd0, replay_active, ram_torn, snap_bus_ok, snap_strobes, snap_j2, snap_j1}, TAIL);
