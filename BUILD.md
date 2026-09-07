@@ -32,7 +32,7 @@ read in that source before the wiring was written.
 | Signal | Where it comes from | Source |
 |---|---|---|
 | Joypad register select | `sel_joy = cpu_addr == 16'hff00` | `rtl/gb.v:181` |
-| Row select `p54` | written by `ce_cpu && sel_joy && !cpu_wr_n_edge`, read back in `joy_do = {2'b11, p54, joy_din}` | `rtl/gb.v:589-594` |
+| Row select `p54` | written by `ce_cpu && sel_joy && !cpu_wr_n_edge`, read back in `joy_do = {2'b11, p54, joy_din}` | `rtl/gb.v:591-594` |
 | Poll (lag rule) | `mc_joy_read = ce_cpu & sel_joy & ~cpu_rd_n & ~mc_joy_rd_d & (p54 != 2'b11)`: the first CPU clock of a `$FF00` read with a row selected. BizHawk's Gambatte clears `IsLagFrame` in the input callback, which libgambatte calls from `Memory::updateInput()` on a `$FF00` read only when `(P1 & 0x30) != 0x30` | BizHawk `Gambatte.cs:360-363`, `:465`; gambatte-speedrun `libgambatte/src/memory.cpp:515-522`, `:604-611`; `rtl/gb.v` MiSTer Control section |
 | Strobe | `ce_cpu & sel_joy & ~cpu_wr_n_edge` (a `$FF00` write) | `rtl/gb.v` MiSTer Control section |
 | Pads | `sgb.v` builds `joy_data` from `joystick_0..3[7:0]`: bit 0 Right, 1 Left, 2 Down, 3 Up, 4 A, 5 B, 6 Select, 7 Start; with SGB off `joystick = joystick_0 \| joystick_1`. The replay substitutes its pads at the four `sgb` inputs | `rtl/sgb.v:378-386`; `Gameboy.sv` sgb instance |
@@ -45,7 +45,7 @@ read in that source before the wiring was written.
 | Reset and download | `reset = RESET \| status[0] \| buttons[1] \| cart_download \| boot_download \| bk_loading`; `cart_download = ioctl_download && (filetype[5:0] == 6'h01 \|\| filetype == 8'h80)` | `Gameboy.sv:546`, `:307` |
 | Backup RAM while a movie is armed | `bk_load`, `bk_save` and the auto-load after a download are gated by `~mc_rp_armed` (state 1 or 2), as MC-NES does | `Gameboy.sv` bk section; MC-NES `NES.sv:1199-1237` |
 | DDR | `rtl/ddram.sv` is byte-identical to the NES upstream file (diffed 2026-09-07); the MC-NES version with `ch2` (telemetry writes) and `ch3` (replay reads) drops in | `git -C MC-NES show upstream/master:rtl/ddram.sv` |
-| Clock | `clk_sys` is the PLL's `outclk_1` = 33.554432 MHz (`outclk_0` = 67.108864 MHz is `clk_ram`). `mc_replay` polls at `CLK_HZ` 33554432 / 60; the header publishes 33554432 | `rtl/pll/pll_0002.v:25-28`; `Gameboy.sv:186-192` |
+| Clock | `clk_sys` is the PLL's `outclk_1` = 33.554432 MHz (`outclk_0` = 67.108864 MHz is `clk_ram`). `mc_replay` polls at `CLK_HZ` 33554432 / 60; the header publishes 33554432 | `rtl/pll/pll_0002.v:25-28`; `Gameboy.sv:157-163` |
 | Status | 64 bits; free before this port: 10, 11, 17, 28-30, 37, 51-63. Telemetry on/off is `status[51]` (CONF_STR page "MiSTer Control") | `Gameboy.sv` CONF_STR, grep of `status[` |
 | Frame rate | 4194304 / 70224 = 59.7275 Hz | standard DMG timing; BizHawk header `ClockRate 2097152` |
 
