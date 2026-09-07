@@ -51,17 +51,55 @@ read in that source before the wiring was written.
 
 ## Telemetry geometry
 
-`mc_telemetry #(.MAGIC("MC-GB\0\0\1"), .RAM_ADDR_W(15), .PAD_COUNT(4),
-.REGS_KIND(1), .SLOT_WORDS(5120))`: header layout 3, 40960 byte slots at
-`0x3C001000`, RAM image 32 KB at slot offset `0x240`, bitmap 4 KB at `0x8240`,
-tail at `0x9240`. `regs kind 1`: slot word 1 is zero, the CPU registers are on
+`mc_telemetry #(.MAGIC("MC-GB\0\0\1"), .RAM_ADDR_W(16), .PAD_COUNT(4),
+.REGS_KIND(1), .SLOT_WORDS(9344))`: header layout 3, 74752 byte slots at
+`0x3C001000`, RAM image 64 KB at slot offset `0x240`, bitmap 8 KB at `0x10240`,
+tail at `0x12240`. `regs kind 1`: slot word 1 is zero, the CPU registers are on
 the bus words (index 1..5). Replay entries are 8 bytes (`mc_replay
 #(.ENTRY_BYTES(8))`), pads 1..4 in the MiSTer joystick order above.
 
+The image is the CPU address space, so a RAM map is written in CPU addresses
+(`rtl/gb.v`, `mc_wram_img`):
+
+| Image offset | Holds | Written by |
+|---|---|---|
+| `$C000-$CFFF` | WRAM bank 0 | `wram_wren` (CPU, DMA), save-state load `Savestate_RAMRWrEn[0]` |
+| `$D000-$DFFF` | WRAM bank 1 (the DMG's upper 4 KB) | same |
+| `$2000-$7FFF` | GBC WRAM banks 2-7 at `bank<<12` | same |
+| `$FF80-$FFFE` | HRAM (zero page, 127 bytes) | `cpu_wr_zpram`, save-state load `Savestate_RAMRWrEn[3]` |
+
+Everything else in the image is never written and its bitmap stays clear. The
+first build (`MC-Gameboy_20260908`) had a 32 KB WRAM-only image (`RAM_ADDR_W`
+15, 40960 byte slots, `$C000` at offset 0); the app tells the two apart by the
+header's RAM size.
+
+The shadow FIFO holds 4096 pending writes (`FIFO_W` 12): the 64 KB read-out
+takes about 3.3 ms per frame and a GBC at double speed can write every other
+cycle (about 3,300 writes in that time).
+
 ## Reference numbers
 
+`MC-Gameboy_20260908b.rbf` (commit `f13d9d5`, default seed, 2026-09-07, the 64 KB image,
+`out/MC-Gameboy_20260908b.txt`):
+
+| Item | Value |
+|---|---|
+| Wall time | 894 s (14 min 54 s) on the 3960X |
+| Logic (ALMs) | 22,225 / 41,910 (53%) |
+| Registers | 28,918 |
+| Block memory | 3,879,605 / 5,662,720 bits (69%), 493 / 553 RAM blocks (89%) |
+| DSP blocks | 36 / 112 |
+| Setup slack, clk_sys (pll general[1]) | 1.845 ns (TNS 0) |
+| Setup slack, clk_ram (pll general[0]) | 2.686 ns (TNS 0) |
+| Setup slack, tightest | 0.597 ns, HDMI PLL (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908b.rbf` | 3,997,116 bytes, SHA-256 `747638676a1378d3f105cd10080932e7fa6050b7e5d0a8f975ff6564a15cfe94` |
+
+Against the first build: +24 ALMs, +47 RAM blocks (the shadow copy 32 KB to 64 KB, the
+bitmap 4 KB to 8 KB, the FIFO 2048 to 4096 entries of 24 bits). 60 RAM blocks remain.
+
 First MC build, `MC-Gameboy_20260908.rbf` (commit `73455ee`, default seed, 2026-09-07,
-`out/MC-Gameboy_20260908.txt`):
+`out/MC-Gameboy_20260908.txt`, the 32 KB WRAM-only image):
 
 | Item | Value |
 |---|---|
