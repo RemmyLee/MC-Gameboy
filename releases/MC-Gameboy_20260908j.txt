@@ -1,0 +1,176 @@
+MC-Gameboy_20260908j.rbf
+commit: 9eb7b99
+seed: default
+wall: 915 s
+critical warnings: 0
+
+Fitter Status : Successful - Tue Sep  8 02:00:26 2026
+Quartus Prime Version : 17.0.2 Build 602 07/19/2017 SJ Lite Edition
+Revision Name : Gameboy
+Top-level Entity Name : sys_top
+Family : Cyclone V
+Device : 5CSEBA6U23I7
+Timing Models : Final
+Logic utilization (in ALMs) : 22,275 / 41,910 ( 53 % )
+Total registers : 28974
+Total pins : 145 / 314 ( 46 % )
+Total virtual pins : 0
+Total block memory bits : 3,879,605 / 5,662,720 ( 69 % )
+Total RAM Blocks : 493 / 553 ( 89 % )
+Total DSP Blocks : 36 / 112 ( 32 % )
+Total HSSI RX PCSs : 0
+Total HSSI PMA RX Deserializers : 0
+Total HSSI TX PCSs : 0
+Total HSSI PMA TX Serializers : 0
+Total PLLs : 3 / 6 ( 50 % )
+Total DLLs : 0 / 4 ( 0 % )
+
+------------------------------------------------------------
+TimeQuest Timing Analyzer Summary
+------------------------------------------------------------
+
+Type  : Setup 'pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter|divclk'
+Slack : 0.606
+TNS   : 0.000
+
+Type  : Setup 'emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk'
+Slack : 1.449
+TNS   : 0.000
+
+Type  : Setup 'sysmem|fpga_interfaces|clocks_resets|h2f_user0_clk'
+Slack : 2.777
+TNS   : 0.000
+
+Type  : Setup 'emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk'
+Slack : 2.881
+TNS   : 0.000
+
+Type  : Setup 'spi_sck'
+Slack : 5.803
+TNS   : 0.000
+
+Type  : Setup 'FPGA_CLK1_50'
+Slack : 7.871
+TNS   : 0.000
+
+Type  : Setup 'FPGA_CLK2_50'
+Slack : 13.066
+TNS   : 0.000
+
+Type  : Setup 'pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk'
+Slack : 14.793
+TNS   : 0.000
+
+Type  : Hold 'emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk'
+Slack : 0.245
+TNS   : 0.000
+
+Type  : Hold 'emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk'
+Slack : 0.248
+TNS   : 0.000
+
+Type  : Hold 'pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk'
+Slack : 0.259
+TNS   : 0.000
+
+Type  : Hold 'pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter|divclk'
+Slack : 0.263
+TNS   : 0.000
+
+Type  : Hold 'spi_sck'
+Slack : 0.310
+TNS   : 0.000
+
+Type  : Hold 'sysmem|fpga_interfaces|clocks_resets|h2f_user0_clk'
+Slack : 0.363
+TNS   : 0.000
+
+Type  : Hold 'FPGA_CLK1_50'
+Slack : 0.414
+TNS   : 0.000
+
+Type  : Hold 'FPGA_CLK2_50'
+Slack : 0.418
+TNS   : 0.000
+
+Type  : Recovery 'pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter|divclk'
+Slack : 3.590
+TNS   : 0.000
+
+Type  : Recovery 'sysmem|fpga_interfaces|clocks_resets|h2f_user0_clk'
+Slack : 6.874
+TNS   : 0.000
+
+Type  : Recovery 'emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk'
+Slack : 12.721
+TNS   : 0.000
+
+Type  : Recovery 'FPGA_CLK1_50'
+Slack : 16.943
+TNS   : 0.000
+
+Type  : Removal 'pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter|divclk'
+Slack : 0.794
+TNS   : 0.000
+
+Type  : Removal 'FPGA_CLK1_50'
+Slack : 0.996
+TNS   : 0.000
+
+Type  : Removal 'sysmem|fpga_interfaces|clocks_resets|h2f_user0_clk'
+Slack : 1.201
+TNS   : 0.000
+
+Type  : Removal 'emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk'
+Slack : 1.471
+TNS   : 0.000
+
+Type  : Minimum Pulse Width 'pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|fpll_0|fpll|vcoph[0]'
+Slack : 1.122
+TNS   : 0.000
+
+Type  : Minimum Pulse Width 'pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]'
+Slack : 1.196
+TNS   : 0.000
+
+Type  : Minimum Pulse Width 'emu|pll|pll_inst|altera_pll_i|general[0].gpll~FRACTIONAL_PLL|vcoph[0]'
+Slack : 1.241
+TNS   : 0.000
+
+Type  : Minimum Pulse Width 'pll_hdmi|pll_hdmi_inst|altera_pll_i|cyclonev_pll|counter[0].output_counter|divclk'
+Slack : 1.939
+TNS   : 0.000
+
+Type  : Minimum Pulse Width 'sysmem|fpga_interfaces|clocks_resets|h2f_user0_clk'
+Slack : 3.579
+TNS   : 0.000
+
+Type  : Minimum Pulse Width 'spi_sck'
+Slack : 4.257
+TNS   : 0.000
+
+Type  : Minimum Pulse Width 'emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk'
+Slack : 6.006
+TNS   : 0.000
+
+Type  : Minimum Pulse Width 'FPGA_CLK1_50'
+Slack : 9.207
+TNS   : 0.000
+
+Type  : Minimum Pulse Width 'FPGA_CLK2_50'
+Slack : 9.229
+TNS   : 0.000
+
+Type  : Minimum Pulse Width 'FPGA_CLK3_50'
+Slack : 9.730
+TNS   : 0.000
+
+Type  : Minimum Pulse Width 'emu|pll|pll_inst|altera_pll_i|general[1].gpll~PLL_OUTPUT_COUNTER|divclk'
+Slack : 13.449
+TNS   : 0.000
+
+Type  : Minimum Pulse Width 'pll_audio|pll_audio_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk'
+Slack : 18.911
+TNS   : 0.000
+
+------------------------------------------------------------

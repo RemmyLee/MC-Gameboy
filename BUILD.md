@@ -42,6 +42,7 @@ read in that source before the wiring was written.
 | Register index map | GBSE 0, CPUREGS 1, T80 2..5, Timer 6, HDMA 7, Link 8, Video 9-10, palettes 11-26, Video3 27, Sound 28-30, Top 31, Ext 32, Wave 33-36, Ext2 37, Top2 38 | `rtl/reg_savestates.vhd:12-44` |
 | Frame edge (telemetry slot) | `lcd_vsync` (`vsync <= !v_cnt` at end of line: high on line 0) | `rtl/video.v:685`, `:692`; `rtl/gb.v:78` |
 | Replay latch (entry N presented) | rising edge of `~lcd_on \| (lcd_mode == 2'b01)`, GBHawk's `in_vblank`: `mode_vblank` = `vblank_l` (DMG: `& vblank_t`), `vblank = v_cnt >= 144` latched a few cycles after the end of line 143; and the LCD switched off outside vblank. GBHawk latches its pads on the rising edge of `in_vblank` (`GBHawk.IEmulator.cs:143-150`), which its PPU sets at LY 144 (`GB_PPU.cs:190-193`), holds true while the LCD is off (`:434-440`) and clears when the LCD is switched on (`:198-201`). A game that reads `$FF00` during the picture must see the new entry from line 144 on, not from line 0; a game that switches the LCD off during the picture (Contra 4199M's title routine, movie frames 350, 358, 362, 366) consumes an entry there, and without the `~lcd_on` term the core ran 3 entries behind from the title on (build h, 2026-09-08) | `rtl/video.v:280`, `:304-313`, `:395-398`; `rtl/mc/mc_replay.sv:94`; `Gameboy.sv` mc_replay instance |
+| Gambatte frames (replay header w2 bit 5) | the entry advances on libgambatte's frame ends, counted by `mc_replay` in CPU cycles (`cyc` = `ce_cpu`, 4 MHz on the DMG): a BizHawk Gambatte movie with "VBlank Driven Frames" (`GambatteSyncSettings.FrameLength` 0, the default) hands the game one entry per `gambatte_runfor()` call (`Gambatte.IEmulator.cs` FrameAdvance; `Memory::updateInput` at each `process()`, `cpu.cpp:520`), and the call ends at the earlier of the end event 70224 cycles after it started (`memory.cpp:166-172`) and the blit event when it draws (`lcden \| blanklcd_`, `memory.cpp:238-258`): on the mode-1 interrupt time with the LCD on, one frame later after each draw (`:167-169`; `video.cpp` m1irq +70224); 4 lines after the LCD is switched off (`:1150-1151`), where it draws only a pending blank, marks the picture blank and moves a frame on (so a blank frame every 70224 cycles while off); at the next mode-1 time when switched on, or the one after when the last picture was not blank (`:1145-1147`); at power-on due at once and moved a frame on (`:157-160`). `gb.v` exports the vblank interrupt line (`mc_vblank_irq` = `video.v` `vblank_l`) as the mode-1 time. Simulated in `sim/tb_replay.sv`. gambatte-core `0838651` (BizHawk 2.10's submodule; `e35e24d`, 2.9.1's, is the same in these files) | `rtl/mc/mc_replay.sv` header comment and the Gambatte block; `rtl/gb.v:94`, `:651`; `Gameboy.sv` mc_replay instance |
 | Slot scanline and cycle | `v_cnt`, `h_cnt` of the `lcd` converter (informational) | `Gameboy.sv:692`, lcd instance |
 | Reset and download | `reset = RESET \| status[0] \| buttons[1] \| cart_download \| boot_download \| bk_loading`; `cart_download = ioctl_download && (filetype[5:0] == 6'h01 \|\| filetype == 8'h80)` | `Gameboy.sv:546`, `:307` |
 | Console mode while a movie is armed | replay header w2 [4:3] (`mc_replay.sys_mode`): 1 DMG, 2 GBC, 3 SGB, 0 the menu. Latched at the arming reset into `mc_sys_ovr` and held to the next reset: `isGBC` follows it, and `sgb_sel` replaces `\|sgb_en` at the boot ROM select, the `sgb` instance and the telemetry system type; the border is off under an override | `Gameboy.sv` isGBC block, `sgb_sel`; `rtl/mc/mc_replay.sv` EVAL |
@@ -82,6 +83,20 @@ takes about 3.3 ms per frame and a GBC at double speed can write every other
 cycle (about 3,300 writes in that time).
 
 ## Reference numbers
+
+`MC-Gameboy_20260908j.rbf` (commit `9eb7b99`, default seed, 2026-09-08, `releases/MC-Gameboy_20260908j.txt`):
+build i plus Gambatte frames (replay header w2 bit 5): the entry advances on libgambatte's
+frame ends counted in CPU cycles, for BizHawk Gambatte movies (Darkwing Duck 6625M).
+
+| Item | Value |
+|---|---|
+| Wall time | 915 s on the 3960X |
+| Logic (ALMs) | 22,275 / 41,910 (53%) |
+| Registers | 28,974 |
+| RAM blocks | 493 / 553 (89%) |
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 1.449 ns / 2.881 ns / 0.606 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908j.rbf` | 4,029,604 bytes, SHA-256 `9a57b893979acdf4e715adad0449fae2daa1d4d041070dee8e6dd81b29303514` |
 
 `MC-Gameboy_20260908i.rbf` (commit `b10e23e`, default seed, 2026-09-08, `out/MC-Gameboy_20260908i.txt`):
 build h with the replay tick on GBHawk's in_vblank edge (line 144, and the LCD switched off
