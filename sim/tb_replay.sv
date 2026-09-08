@@ -33,9 +33,9 @@ always @(posedge clk) begin
 	end
 end
 
-wire active; wire [7:0] p1, p2, p3, p4, state, gen, entry_bytes; wire [31:0] index;
+wire active; wire [7:0] p1, p2, p3, p4, state, gen, entry_bytes; wire [31:0] index; wire [1:0] sys_mode;
 mc_replay #(.ENTRY_BYTES(EB)) dut (.clk(clk), .reset(reset), .downloading(downloading), .vblank(vblank), .joy_read(joy_read), .ddr_addr(ddr_addr), .ddr_req(ddr_req), .ddr_dout(ddr_dout), .ddr_ready(ddr_ready),
-	.active(active), .p1(p1), .p2(p2), .p3(p3), .p4(p4), .index(index), .state(state), .gen(gen), .entry_bytes(entry_bytes));
+	.active(active), .p1(p1), .p2(p2), .p3(p3), .p4(p4), .index(index), .state(state), .gen(gen), .entry_bytes(entry_bytes), .sys_mode(sys_mode));
 
 // write entry i: p1 = i+1, p2 = 0x80+i, p3 = 0x40+i, p4 = 0xC0+i (8 byte layout only), cmd
 task put(input integer i, input [7:0] cmd);
@@ -160,6 +160,14 @@ initial begin
 	polled_frame; check("resumes on the next poll", index, 3);
 	reset <= 1; repeat (3) @(posedge clk); check("reset aborts poll run", state, 4); reset <= 0; repeat (3) @(posedge clk);
 	mem[2] = 64'd1;
+
+	// console mode (w2 [4:3]) is latched with the arm and survives the run
+	arm(4, 8'd20); mem[2] = 64'd1 | (64'd1 << 3); poll; check("dmg mode armed", state, 1); check("sys_mode dmg", sys_mode, 1);
+	load; frame; frame; frame; frame; check("dmg run done", state, 3); check("sys_mode held after the run", sys_mode, 1);
+	arm(4, 8'd21); mem[2] = 64'd1 | (64'd3 << 3); poll; check("sys_mode sgb", sys_mode, 3);
+	load; frame; frame; frame; frame; check("sgb run done", state, 3);
+	arm(4, 8'd22); mem[2] = 64'd1; poll; check("sys_mode menu", sys_mode, 0);
+	load; frame; frame; frame; frame;
 
 	// a frame edge that lands during a header poll is not lost
 	arm(10, 8'd11); poll; load;

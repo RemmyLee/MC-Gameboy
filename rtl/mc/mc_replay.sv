@@ -5,7 +5,9 @@
 // window), written by MiSTer Control:
 //   w0  magic "MC-RPLAY"
 //   w1  [31:0] frames            [63:32] generation (changes on every arm)
-//   w2  [0] armed  [1] abort  [2] poll-indexed  (the rest reserved)
+//   w2  [0] armed  [1] abort  [2] poll-indexed  [4:3] console mode the movie was
+//       made for: 0 leave the menu, 1 DMG, 2 GBC, 3 SGB (sys_mode; the core boots
+//       that mode at the arming reset, whatever the menu says)  (the rest reserved)
 //   w3  [7:0] bytes per entry: must equal this core's ENTRY_BYTES, else the
 //       core answers state 7 (layout mismatch) and stays idle
 //   w8.. entries:
@@ -70,7 +72,8 @@ module mc_replay
 	output reg [31:0] index = 0,   // entry being presented
 	output reg  [7:0] state = 0,
 	output reg  [7:0] gen = 0,     // generation of the last accepted arm; 0 = none yet
-	output      [7:0] entry_bytes  // ENTRY_BYTES, for the telemetry header
+	output      [7:0] entry_bytes, // ENTRY_BYTES, for the telemetry header
+	output reg  [1:0] sys_mode = 0 // header w2 [4:3] of the last accepted arm
 );
 
 localparam [63:0] MAGIC = 64'h59414C50_522D434D;   // "MC-RPLAY"
@@ -178,6 +181,7 @@ always @(posedge clk) begin
 				state     <= S_ARMED;
 				dl_seen   <= downloading;
 				poll_mode <= hdr2[2];
+				sys_mode  <= hdr2[4:3];
 				read_word(HDR_W + 25'd8, PF0);
 			end
 		end

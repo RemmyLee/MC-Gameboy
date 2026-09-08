@@ -280,6 +280,11 @@ wire  [7:0] mc_wr_data;
 wire        mc_rp_active;
 wire  [7:0] mc_rp_p1, mc_rp_p2, mc_rp_p3, mc_rp_p4, mc_rp_state, mc_rp_gen, mc_rp_entry_bytes;
 wire        mc_rp_armed = (mc_rp_state == 8'd1) || (mc_rp_state == 8'd2);
+wire  [1:0] mc_rp_sys;   // replay header w2 [4:3]: 0 menu, 1 DMG, 2 GBC, 3 SGB
+// The console mode the running movie asked for, latched at the arming reset
+// and held until the next reset, so the SGB and GBC paths do not flip when
+// the movie ends. 0 = the menu decides (no movie).
+reg   [1:0] mc_sys_ovr = 0;
 wire [31:0] mc_rp_index;
 wire [24:0] mc_rd_addr;
 wire        mc_rd_req, mc_rd_ready;
@@ -554,7 +559,9 @@ always @(posedge clk_sys) if(reset) begin
 	if (md_download)
 		megaduck <= sys_auto || sys_megaduck;
 
-	if(~sys_auto) isGBC <= sys_gbc;
+	mc_sys_ovr <= mc_rp_armed ? mc_rp_sys : 2'd0;
+	if (mc_rp_armed && mc_rp_sys != 2'd0) isGBC <= (mc_rp_sys == 2'd2);   // the movie's console, not the menu's
+	else if(~sys_auto) isGBC <= sys_gbc;
 	else if(cart_download) begin
 		if (!filetype[5:0]) isGBC <= isGBC_game;
 		else isGBC <= !filetype[7:6];
@@ -575,7 +582,7 @@ gb gb (
 	
 	.isGBC       ( isGBC      ),
     .real_cgb_boot ( using_real_cgb_bios ),  
-	.isSGB       ( |sgb_en & ~isGBC ),
+	.isSGB       ( sgb_sel & ~isGBC ),
 	.megaduck    ( megaduck   ),
 	.extra_spr_en( status[44] ),
 
@@ -753,7 +760,12 @@ wire sgb_lcd_clkena, sgb_lcd_on, sgb_lcd_vsync, sgb_lcd_freeze;
 wire [1:0] sgb_lcd_mode;
 wire sgb_pal_en;
 wire [1:0] sgb_en = status[24:23];
-wire sgb_border_en = sgb_en[1];
+// Super Game Boy path: the menu's choice, unless a movie is running that
+// was made for a DMG or GBC (SGB off) or for an SGB (on). A DMG movie on an
+// SGB-enhanced cart with the menu at Palette or On otherwise boots the SGB
+// path and stalls in the game's SGB handshake (Contra, 2026-09-07).
+wire sgb_sel = (mc_sys_ovr != 2'd0) ? (mc_sys_ovr == 2'd3) : |sgb_en;
+wire sgb_border_en = (mc_sys_ovr != 2'd0) ? 1'b0 : sgb_en[1];
 
 sgb sgb (
 	.reset       ( reset       ),
@@ -771,7 +783,7 @@ sgb sgb (
 	.joy_p54     ( joy_p54     ),
 	.joy_do      ( joy_do_sgb  ),
 
-	.sgb_en      ( |sgb_en & isSGB_game & (~isGBC | status[35]) ),
+	.sgb_en      ( sgb_sel & isSGB_game & (~isGBC | status[35]) ),
 	.tint        ( tint[1]     ),
 	.isGBC_game  ( isGBC & isGBC_game ),
 
@@ -1241,6 +1253,7 @@ mc_replay #(.ENTRY_BYTES(8), .CLK_HZ(32'd33554432)) mc_replay
 	.p4(mc_rp_p4),
 	.index(mc_rp_index),
 	.state(mc_rp_state),
+	.sys_mode(mc_rp_sys),
 	.gen(mc_rp_gen),
 	.entry_bytes(mc_rp_entry_bytes)
 );
@@ -1270,7 +1283,7 @@ mc_shadow_ram #(.ADDR_W(16), .FIFO_W(12)) mc_shadow_ram
 );
 
 // system type: 0 DMG, 1 GBC, 2 SGB (the emulator's console choice)
-wire [2:0] mc_sys_type = isGBC ? 3'd1 : (|sgb_en) ? 3'd2 : 3'd0;
+wire [2:0] mc_sys_type = isGBC ? 3'd1 : sgb_sel ? 3'd2 : 3'd0;
 
 mc_telemetry #(
 	.MAGIC(64'h01000042_472D434D),   // "MC-GB\0\0\1"
