@@ -82,6 +82,20 @@ cycle (about 3,300 writes in that time).
 
 ## Reference numbers
 
+`MC-Gameboy_20260908f.rbf` (commit `07502bb`, default seed, 2026-09-07, `out/MC-Gameboy_20260908f.txt`):
+build e plus fast boot forced while a movie is armed (the DMG boot ROM's logo animation
+otherwise adds about 300 frames when Fast boot is off in the menu).
+
+| Item | Value |
+|---|---|
+| Wall time | 884 s on the 3960X |
+| Logic (ALMs) | 22,300 / 41,910 (53%) |
+| Registers | 28,825 |
+| RAM blocks | 493 / 553 (89%) |
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 2.005 ns / 3.157 ns / 0.498 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908f.rbf` | 4,007,560 bytes, SHA-256 `0d3a120f73047f41003eb261b6dcf1427517ca55f8793231057d2ba531cf68e1` |
+
 `MC-Gameboy_20260908e.rbf` (commit `86058f2`, default seed, 2026-09-07, `out/MC-Gameboy_20260908e.txt`):
 build d plus the console mode from the replay header (w2 [4:3]): a DMG movie boots the DMG
 path on an SGB-enhanced cartridge whatever the Super Game Boy menu says (Contra 4199M
