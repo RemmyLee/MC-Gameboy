@@ -125,6 +125,7 @@ localparam CONF_STR = {
 	"P4,MiSTer Control;",
 	"P4-;",
 	"P4O[51],Telemetry,On,Off;",
+	"P4FC5,BIN,Load DMG boot ROM;",   // ioctl index 5 = dmg_boot_download: a movie launch loads the boot ROM the emulator ran before the cartridge (MiSTer Control MGL)
 
 	"-;",
 	"R0,Reset;",
