@@ -81,6 +81,21 @@ cycle (about 3,300 writes in that time).
 
 ## Reference numbers
 
+`MC-Gameboy_20260908e.rbf` (commit `86058f2`, default seed, 2026-09-07, `out/MC-Gameboy_20260908e.txt`):
+build d plus the console mode from the replay header (w2 [4:3]): a DMG movie boots the DMG
+path on an SGB-enhanced cartridge whatever the Super Game Boy menu says (Contra 4199M
+stalled in its SGB handshake on build d with the menu at Palette; on this build it plays).
+
+| Item | Value |
+|---|---|
+| Wall time | 879 s on the 3960X |
+| Logic (ALMs) | 22,244 / 41,910 (53%) |
+| Registers | 28,952 |
+| RAM blocks | 493 / 553 (89%) |
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 1.690 ns / 2.869 ns / 0.203 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908e.rbf` | 4,006,976 bytes, SHA-256 `21b08629267c8c2b887408bb5ebdd4be1f04ff236a82e0854caba1e4c93bc43c` |
+
 `MC-Gameboy_20260908d.rbf` (commit `d7d3ec2`, default seed, 2026-09-07, `out/MC-Gameboy_20260908d.txt`):
 build c plus the replay latch point at the PPU's vblank entry (`lcd_mode == 2'b01`, line 144,
 where GBHawk latches its pads) instead of `lcd_vsync` (line 0). With line 0 a one-frame tap
