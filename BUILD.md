@@ -83,6 +83,21 @@ cycle (about 3,300 writes in that time).
 
 ## Reference numbers
 
+`MC-Gameboy_20260908i.rbf` (commit `b10e23e`, default seed, 2026-09-08, `out/MC-Gameboy_20260908i.txt`):
+build h with the replay tick on GBHawk's in_vblank edge (line 144, and the LCD switched off
+outside vblank): Contra's title routine consumes four entries by switching the LCD off
+during the picture and build h ran three entries behind from there.
+
+| Item | Value |
+|---|---|
+| Wall time | 890 s on the 3960X |
+| Logic (ALMs) | 22,191 / 41,910 (53%) |
+| Registers | 28,761 |
+| RAM blocks | 493 / 553 (89%) |
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 2.101 ns / 3.008 ns / 0.490 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908i.rbf` | 4,022,416 bytes, SHA-256 `10088832a47d5f0f0609f20580b6c6457577b6bb3a9b128bda2b81f4e4e4f882` |
+
 `MC-Gameboy_20260908h.rbf` (commit `625f9f1`, default seed, 2026-09-07, `out/MC-Gameboy_20260908h.txt`):
 build g with the DMG boot ROM slot on the root page (`FC5,BIN,Load DMG boot ROM`): the
 firmware matches an MGL file index only against visible root-page F entries, and build g's
