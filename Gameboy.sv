@@ -1368,7 +1368,8 @@ wire [63:0] mc_stamps = {12'd0, mc_rd_seen, mc_fcyc, mc_rd_last, mc_rd_first};
 // fires again before its burst went is dropped (mc_aux_drops).
 reg        mc_vbl_d = 0, mc_vid_d = 0;
 reg        mc_axc_pend = 0, mc_axp_pend = 0;
-reg [15:0] mc_axc_w0 = 0, mc_axc_w1 = 0, mc_axc_w2 = 0, mc_axp_w0 = 0, mc_axp_w1 = 0, mc_axp_w2 = 0;
+reg [19:0] mc_axc_w0 = 0, mc_axp_w0 = 0;   // {kind[3:0], val[7:0], vcnt[7:0]}
+reg [15:0] mc_axc_w1 = 0, mc_axc_w2 = 0, mc_axp_w1 = 0, mc_axp_w2 = 0;
 reg  [1:0] mc_ax_step = 0;     // 0: idle, 1..3: word n of the current burst goes out
 reg        mc_ax_src = 0;      // 0: CPU burst, 1: PPU burst
 reg  [7:0] mc_aux_drops = 0;
@@ -1392,7 +1393,7 @@ always @(posedge clk_sys) begin
 		mc_axp_pend <= 1;
 		mc_axp_w0 <= {4'd3, 6'd0, mc_video_irq & ~mc_vid_d, mc_vblank_irq & ~mc_vbl_d, mc_vcnt};
 		mc_axp_w1 <= {7'd0, mc_hcyc};
-		mc_axp_w2 <= mc_fcyc[16] ? 16'hFFEF : mc_fcyc[15:0];
+		mc_axp_w2 <= mc_fcyc[15:0];
 	end
 	mc_aux_we <= 0;
 	if (mc_ax_step == 0) begin
@@ -1402,7 +1403,7 @@ always @(posedge clk_sys) begin
 	else if (mc_aux_ready) begin
 		mc_aux_we <= 1;
 		case (mc_ax_step)
-		2'd1: mc_aux_word <= {12'hFFF, mc_ax_src ? mc_axp_w0[15:12] : mc_axc_w0[15:12], mc_ax_src ? mc_axp_w0[11:0] : mc_axc_w0[11:0]};
+		2'd1: mc_aux_word <= {12'hFFF, mc_ax_src ? mc_axp_w0 : mc_axc_w0};   // 12 + 20 bits
 		2'd2: mc_aux_word <= {16'hFFFA, mc_ax_src ? mc_axp_w1 : mc_axc_w1};
 		default: begin
 			mc_aux_word <= {16'hFFFB, mc_ax_src ? mc_axp_w2 : mc_axc_w2};
