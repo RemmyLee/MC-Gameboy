@@ -1308,6 +1308,34 @@ mc_shadow_ram #(.ADDR_W(16), .FIFO_W(12)) mc_shadow_ram
 // system type: 0 DMG, 1 GBC, 2 SGB (the emulator's console choice)
 wire [2:0] mc_sys_type = isGBC ? 3'd1 : sgb_sel ? 3'd2 : 3'd0;
 
+// When in the frame the game read the pads: 4 MHz cycles (ce_cpu) counted from
+// the lcd_vsync rising edge the telemetry takes as the frame boundary. The
+// telemetry samples these on that same edge, so a slot carries the finished
+// frame's values. Slot word 1 (cpu_regs; REGS_KIND 1 leaves it free):
+// [16:0] first $FF00 read, [33:17] last, [50:34] frame length, [51] a read happened.
+reg [16:0] mc_fcyc = 0, mc_rd_first = 0, mc_rd_last = 0;
+reg        mc_rd_seen = 0, mc_vs_d = 0;
+always @(posedge clk_sys) begin
+	mc_vs_d <= lcd_vsync;
+	if (lcd_vsync & ~mc_vs_d) begin
+		mc_fcyc    <= 0;
+		mc_rd_seen <= mc_joy_read;
+		if (mc_joy_read) begin
+			mc_rd_first <= 0;
+			mc_rd_last  <= 0;
+		end
+	end
+	else begin
+		if (ce_cpu && mc_fcyc != 17'h1FFFF) mc_fcyc <= mc_fcyc + 17'd1;
+		if (mc_joy_read) begin
+			if (!mc_rd_seen) mc_rd_first <= mc_fcyc;
+			mc_rd_last <= mc_fcyc;
+			mc_rd_seen <= 1;
+		end
+	end
+end
+wire [63:0] mc_stamps = {12'd0, mc_rd_seen, mc_fcyc, mc_rd_last, mc_rd_first};
+
 mc_telemetry #(
 	.MAGIC(64'h01000042_472D434D),   // "MC-GB\0\0\1"
 	.RAM_ADDR_W(16),
@@ -1324,7 +1352,7 @@ mc_telemetry #(
 	.cycle(h_cnt),
 	.clk_hz(32'd33554432),
 	.sys_type(mc_sys_type),
-	.cpu_regs(64'd0),
+	.cpu_regs(mc_stamps),
 	.bus_adr(mc_bus_adr),
 	.bus_dout(mc_bus_dout),
 	.bus_free(mc_bus_free),
