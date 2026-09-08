@@ -91,6 +91,10 @@ module gb (
 	output  [7:0] mc_wram_din,
 	output        mc_joy_read,       // one clock per CPU read of $FF00 with a row selected (p54 != 11)
 	output        mc_joy_strobe,     // one clock per CPU write of $FF00
+	output        mc_stat_read,      // one clock per CPU read of $FF41 (STAT)
+	output        mc_ly_read,        // one clock per CPU read of $FF44 (LY)
+	output        mc_dma_write,      // one clock per CPU write of $FF46 (OAM DMA)
+	output        mc_lcdc_write,     // one clock per CPU write of $FF40 (LCDC)
 	output        mc_vblank_irq,     // the PPU's vblank interrupt line (video.v vblank_l): its rise is the mode-1 time
 	input   [9:0] mc_bus_adr,
 	output [63:0] mc_bus_dout,
@@ -1275,5 +1279,19 @@ reg mc_joy_rd_d = 0;
 always @(posedge clk_sys) if (ce_cpu) mc_joy_rd_d <= sel_joy & ~cpu_rd_n;
 assign mc_joy_read   = ce_cpu & sel_joy & ~cpu_rd_n & ~mc_joy_rd_d & (p54 != 2'b11);
 assign mc_joy_strobe = ce_cpu & sel_joy & ~cpu_wr_n_edge;
+
+// The PPU registers the game waits on or kicks: STAT and LY reads, OAM DMA and
+// LCDC writes, one pulse each, decoded like the joypad read above.
+wire sel_mc_stat = cpu_addr == 16'hff41;
+wire sel_mc_ly   = cpu_addr == 16'hff44;
+reg  mc_stat_rd_d = 0, mc_ly_rd_d = 0;
+always @(posedge clk_sys) if (ce_cpu) begin
+	mc_stat_rd_d <= sel_mc_stat & ~cpu_rd_n;
+	mc_ly_rd_d   <= sel_mc_ly & ~cpu_rd_n;
+end
+assign mc_stat_read  = ce_cpu & sel_mc_stat & ~cpu_rd_n & ~mc_stat_rd_d;
+assign mc_ly_read    = ce_cpu & sel_mc_ly & ~cpu_rd_n & ~mc_ly_rd_d;
+assign mc_dma_write  = ce_cpu & (cpu_addr == 16'hff46) & ~cpu_wr_n_edge;
+assign mc_lcdc_write = ce_cpu & (cpu_addr == 16'hff40) & ~cpu_wr_n_edge;
 
 endmodule

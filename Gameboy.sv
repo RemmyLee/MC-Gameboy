@@ -281,6 +281,8 @@ wire [63:0] mc_ddr_din;
 wire        mc_ddr_req, mc_ddr_ready;
 wire [31:0] mc_frame;
 wire        mc_wr, mc_joy_read, mc_strobe, mc_vblank_irq;
+wire        mc_stat_read, mc_ly_read, mc_dma_write, mc_lcdc_write;
+wire [63:0] mc_bus_dout_gb;
 wire [15:0] mc_wr_addr;
 wire  [7:0] mc_wr_data;
 
@@ -603,9 +605,13 @@ gb gb (
 	.mc_wram_din   ( mc_wr_data   ),
 	.mc_joy_read   ( mc_joy_read  ),
 	.mc_joy_strobe ( mc_strobe    ),
+	.mc_stat_read  ( mc_stat_read ),
+	.mc_ly_read    ( mc_ly_read   ),
+	.mc_dma_write  ( mc_dma_write ),
+	.mc_lcdc_write ( mc_lcdc_write),
 	.mc_vblank_irq ( mc_vblank_irq ),
 	.mc_bus_adr    ( mc_bus_adr   ),
-	.mc_bus_dout   ( mc_bus_dout  ),
+	.mc_bus_dout   ( mc_bus_dout_gb ),
 	.mc_bus_free   ( mc_bus_free  ),
 
 	// interface to the "external" game cartridge
@@ -1335,6 +1341,48 @@ always @(posedge clk_sys) begin
 	end
 end
 wire [63:0] mc_stamps = {12'd0, mc_rd_seen, mc_fcyc, mc_rd_last, mc_rd_first};
+
+// Per-frame counts of the PPU accesses the game paces itself with, latched on
+// the same lcd_vsync edge and presented as telemetry bus words 60..62 (the
+// save-state register bus stops at index 5):
+//   60: [15:0] STAT reads, [32:16] cycle of the first, [49:33] cycle of the last
+//   61: [15:0] LY reads, [23:16] OAM DMA writes, [40:24] cycle of the first DMA write, [48:41] LCDC writes
+//   62: [16:0] cycles the PPU spent in mode 3 (ce_cpu), [33:17] in mode 2, [50:34] in mode 0
+reg [15:0] mc_stat_n = 0, mc_ly_n = 0;
+reg [16:0] mc_stat_first = 0, mc_stat_last = 0, mc_dma_first = 0, mc_m3_cyc = 0, mc_m2_cyc = 0, mc_m0_cyc = 0;
+reg  [7:0] mc_dma_n = 0, mc_lcdc_n = 0;
+reg [63:0] mc_w60 = 0, mc_w61 = 0, mc_w62 = 0;
+always @(posedge clk_sys) begin
+	if (lcd_vsync & ~mc_vs_d) begin
+		mc_w60 <= {14'd0, mc_stat_last, mc_stat_first, mc_stat_n};
+		mc_w61 <= {15'd0, mc_lcdc_n, mc_dma_first, mc_dma_n, mc_ly_n};
+		mc_w62 <= {13'd0, mc_m0_cyc, mc_m2_cyc, mc_m3_cyc};
+		mc_stat_n <= 0; mc_ly_n <= 0; mc_dma_n <= 0; mc_lcdc_n <= 0;
+		mc_stat_first <= 0; mc_stat_last <= 0; mc_dma_first <= 0;
+		mc_m3_cyc <= 0; mc_m2_cyc <= 0; mc_m0_cyc <= 0;
+	end
+	else begin
+		if (mc_stat_read) begin
+			if (mc_stat_n == 0) mc_stat_first <= mc_fcyc;
+			mc_stat_last <= mc_fcyc;
+			if (mc_stat_n != 16'hFFFF) mc_stat_n <= mc_stat_n + 16'd1;
+		end
+		if (mc_ly_read && mc_ly_n != 16'hFFFF) mc_ly_n <= mc_ly_n + 16'd1;
+		if (mc_dma_write) begin
+			if (mc_dma_n == 0) mc_dma_first <= mc_fcyc;
+			if (mc_dma_n != 8'hFF) mc_dma_n <= mc_dma_n + 8'd1;
+		end
+		if (mc_lcdc_write && mc_lcdc_n != 8'hFF) mc_lcdc_n <= mc_lcdc_n + 8'd1;
+		if (ce_cpu && lcd_on) begin
+			if (lcd_mode == 2'b11 && mc_m3_cyc != 17'h1FFFF) mc_m3_cyc <= mc_m3_cyc + 17'd1;
+			if (lcd_mode == 2'b10 && mc_m2_cyc != 17'h1FFFF) mc_m2_cyc <= mc_m2_cyc + 17'd1;
+			if (lcd_mode == 2'b00 && mc_m0_cyc != 17'h1FFFF) mc_m0_cyc <= mc_m0_cyc + 17'd1;
+		end
+	end
+end
+assign mc_bus_dout = (mc_bus_adr == 10'd60) ? mc_w60 :
+                     (mc_bus_adr == 10'd61) ? mc_w61 :
+                     (mc_bus_adr == 10'd62) ? mc_w62 : mc_bus_dout_gb;
 
 mc_telemetry #(
 	.MAGIC(64'h01000042_472D434D),   // "MC-GB\0\0\1"
