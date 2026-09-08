@@ -91,6 +91,7 @@ module gb (
 	output  [7:0] mc_wram_din,
 	output        mc_joy_read,       // one clock per CPU read of $FF00 with a row selected (p54 != 11)
 	output        mc_joy_strobe,     // one clock per CPU write of $FF00
+	output        mc_vblank_irq,     // the PPU's vblank interrupt line (video.v vblank_l): its rise is the mode-1 time
 	input   [9:0] mc_bus_adr,
 	output [63:0] mc_bus_dout,
 	output        mc_bus_free,       // 0 while a save or load owns the bus
@@ -647,6 +648,7 @@ reg [3:0] inputD, inputD2;
 assign irq_n = !(ie_r & if_r);
 
 wire video_irq,vblank_irq;
+assign mc_vblank_irq = vblank_irq;
 wire timer_irq;
 
 reg old_vblank_irq, old_video_irq, old_timer_irq, old_serial_irq;

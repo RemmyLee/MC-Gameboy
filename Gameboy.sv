@@ -280,7 +280,7 @@ wire [24:0] mc_ddr_addr;
 wire [63:0] mc_ddr_din;
 wire        mc_ddr_req, mc_ddr_ready;
 wire [31:0] mc_frame;
-wire        mc_wr, mc_joy_read, mc_strobe;
+wire        mc_wr, mc_joy_read, mc_strobe, mc_vblank_irq;
 wire [15:0] mc_wr_addr;
 wire  [7:0] mc_wr_data;
 
@@ -603,6 +603,7 @@ gb gb (
 	.mc_wram_din   ( mc_wr_data   ),
 	.mc_joy_read   ( mc_joy_read  ),
 	.mc_joy_strobe ( mc_strobe    ),
+	.mc_vblank_irq ( mc_vblank_irq ),
 	.mc_bus_adr    ( mc_bus_adr   ),
 	.mc_bus_dout   ( mc_bus_dout  ),
 	.mc_bus_free   ( mc_bus_free  ),
@@ -1259,6 +1260,11 @@ mc_replay #(.ENTRY_BYTES(8), .CLK_HZ(32'd33554432)) mc_replay
 	// picture landed a frame late (SML2 3746M, 2026-09-07).
 	.vblank(~lcd_on | (lcd_mode == 2'b01)),
 	.joy_read(mc_joy_read),
+	// Gambatte frames (header w2 bit 5): counted in CPU cycles from LCDC bit 7
+	// and the vblank interrupt line (the model in mc_replay.sv)
+	.cyc(ce_cpu),
+	.lcd_on(lcd_on),
+	.m1_irq(mc_vblank_irq),
 	.ddr_addr(mc_rd_addr),
 	.ddr_req(mc_rd_req),
 	.ddr_dout(mc_rd_dout),

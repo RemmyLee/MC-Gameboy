@@ -7,7 +7,9 @@
 //   w1  [31:0] frames            [63:32] generation (changes on every arm)
 //   w2  [0] armed  [1] abort  [2] poll-indexed  [4:3] console mode the movie was
 //       made for: 0 leave the menu, 1 DMG, 2 GBC, 3 SGB (sys_mode; the core boots
-//       that mode at the arming reset, whatever the menu says)  (the rest reserved)
+//       that mode at the arming reset, whatever the menu says)  [5] Gambatte
+//       frames: the entry advances on libgambatte's frame ends, counted in CPU
+//       cycles (below), not on vblank  (the rest reserved)
 //   w3  [7:0] bytes per entry: must equal this core's ENTRY_BYTES, else the
 //       core answers state 7 (layout mismatch) and stays idle
 //   w8.. entries:
@@ -40,6 +42,31 @@
 // command bit set stops the replay with state UNSUPPORTED: reset and power
 // inside a movie are not implemented in this version.
 //
+// Gambatte frames (header w2 bit 5): a BizHawk Gambatte movie with "VBlank
+// Driven Frames" (Gambatte.IEmulator.cs FrameAdvance) hands the game one entry
+// per gambatte_runfor() call, and libgambatte (gambatte-core 0838651, the
+// BizHawk 2.10 submodule; e35e24d in 2.9.1 is the same here) ends that call at
+// the earlier of two events, both in 4 MHz CPU cycles (video/lcddef.h: 456 per
+// line, 70224 per frame):
+//   - the end event, 70224 cycles after the call started (cpu.cpp:519
+//     setEndtime, memory.cpp:166-172);
+//   - the blit event, when it draws: with the LCD on or a blank picture
+//     pending (`lcden | blanklcd_`, memory.cpp:238-258). With the LCD on the
+//     blit sits on the mode-1 (vblank) interrupt time and moves one frame on
+//     after each draw (:167-169 bumps a due blit; video.cpp m1irq +70224).
+//     Turning the LCD off puts the blit 4 lines after the write (:1150-1151);
+//     that one draws nothing unless a blank was pending, marks the picture
+//     blank and moves a frame on, so with the LCD off a blank frame ends every
+//     70224 cycles. Turning it on puts the blit at the next mode-1 time, or at
+//     the one after it when the last picture drawn was not blank (:1145-1147).
+//   At power-on the blit is due at once and moved a frame on (:157-160, then
+//   :167), the picture not blank, so the first frame ends 70224 cycles in.
+// The core keeps the same model: `cyc` is the CPU cycle enable, `lcd_on`
+// LCDC bit 7, `m1_irq` the PPU's vblank interrupt line (its rising edge is
+// the mode-1 time). Not modelled: GBC double speed (the counts would halve)
+// and libgambatte's instruction-granular overshoot of an event (its next end
+// event starts from the overshot cycle; here from the event itself).
+//
 // State (also written into the telemetry slot): 0 idle, 1 armed, 2 running,
 // 3 done, 4 aborted, 5 unsupported command, 6 bad header, 7 layout mismatch.
 //
@@ -57,6 +84,11 @@ module mc_replay
 	input             downloading, // a game upload is in progress (NES.sv `downloading` for a nes/fds/nsf type; boot0.rom is not a game)
 	input             vblank,
 	input             joy_read,    // one pulse per controller read (the lag rule's poll)
+	// Gambatte frames (header w2 bit 5): the CPU cycle enable, LCDC bit 7 and
+	// the PPU's vblank interrupt line. A core without them ties them to 0.
+	input             cyc,
+	input             lcd_on,
+	input             m1_irq,
 
 	// DDR read channel (64 bit word address inside the 0x30000000 window)
 	output reg [24:0] ddr_addr,
@@ -94,7 +126,9 @@ localparam        POLL_W    = $clog2(POLL_CLKS + 1);
 
 reg [POLL_W-1:0] poll_cnt = 0;
 reg        vblank_d = 0;
-wire       frame_start = vblank & ~vblank_d;
+reg        cyc_mode = 0;  // header w2 bit 5: Gambatte frames
+reg        gb_frame = 0;  // one clock: a Gambatte frame ended
+wire       frame_start = cyc_mode ? gb_frame : (vblank & ~vblank_d);
 reg        reset_d = 1;
 wire       reset_release = reset_d & ~reset;
 
@@ -145,6 +179,62 @@ task automatic stop_unsupported;
 	active <= 0; state <= S_UNSUP; st <= IDLE;
 endtask
 
+// ---- Gambatte frames (the model in the header comment) ---------------------
+localparam [16:0] FRAME_CYC = 17'd70224;   // lcd_cycles_per_frame
+localparam [16:0] OFF_BLIT  = 17'd1824;    // 4 * lcd_cycles_per_line
+wire       gb_run = (state == S_RUN) & cyc_mode;   // the run, whatever the read state (a header poll or a prefetch is not a stop)
+reg [16:0] to_end = 0;      // cycles to the end event
+reg [16:0] to_blit = 0;     // cycles to the blit while it is counted (LCD off)
+reg        blit_cnt = 0;    // the blit is counted, not on the mode-1 edge
+reg        blank = 0;       // libgambatte blanklcd_: the last picture drawn was blank
+reg        m1_wait = 0;     // LCD on: the blit is on a mode-1 edge
+reg        m1_skip = 0;     // and not the first one
+reg        lcd_on_d = 0, m1_d = 0;
+
+always @(posedge clk) begin
+	gb_frame <= 0;
+	if (!gb_run) begin
+		// power-on: the blit due and moved a frame on, the picture not blank
+		to_end   <= FRAME_CYC;
+		to_blit  <= FRAME_CYC;
+		blit_cnt <= ~lcd_on;
+		m1_wait  <= lcd_on;
+		m1_skip  <= 0;
+		blank    <= 0;
+		lcd_on_d <= lcd_on;
+		m1_d     <= m1_irq;
+	end
+	else if (cyc) begin
+		lcd_on_d <= lcd_on;
+		m1_d     <= m1_irq;
+		// the end event: a frame is at most FRAME_CYC cycles
+		if (to_end == 17'd1) begin gb_frame <= 1; to_end <= FRAME_CYC; end
+		else to_end <= to_end - 17'd1;
+		if (lcd_on_d & ~lcd_on) begin          // LCD off: the blit 4 lines on
+			to_blit  <= OFF_BLIT;
+			blit_cnt <= 1;
+			m1_wait  <= 0;
+		end
+		else if (~lcd_on_d & lcd_on) begin     // LCD on: the next mode-1 edge, or the one after
+			blit_cnt <= 0;
+			m1_wait  <= 1;
+			m1_skip  <= ~blank;
+		end
+		else if (blit_cnt) begin
+			if (to_blit == 17'd1) begin
+				if (blank) begin gb_frame <= 1; to_end <= FRAME_CYC; end   // a blank picture drawn
+				blank   <= 1;
+				to_blit <= FRAME_CYC;
+			end
+			else to_blit <= to_blit - 17'd1;
+		end
+		else if (m1_wait & m1_irq & ~m1_d) begin
+			if (m1_skip) m1_skip <= 0;
+			else begin gb_frame <= 1; to_end <= FRAME_CYC; blank <= 0; end   // the picture drawn
+		end
+	end
+end
+
 always @(posedge clk) begin
 	ddr_req  <= 0;
 	vblank_d <= vblank;
@@ -182,6 +272,7 @@ always @(posedge clk) begin
 				dl_seen   <= downloading;
 				poll_mode <= hdr2[2];
 				sys_mode  <= hdr2[4:3];
+				cyc_mode  <= hdr2[5];
 				read_word(HDR_W + 25'd8, PF0);
 			end
 		end
@@ -210,7 +301,7 @@ always @(posedge clk) begin
 		else st <= st_t'((state == S_RUN) ? RUN : WAIT_RESET);
 	end
 
-	// ---- running: one entry per vblank --------------------------------------------
+	// ---- running: one entry per vblank (or per Gambatte frame) --------------------
 	RUN: begin
 		frame_pend <= 0;
 		if (reset) begin                      // a load or reset ends the run

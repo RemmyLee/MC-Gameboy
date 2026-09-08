@@ -11,6 +11,7 @@ reg clk = 0;
 always #23.28 clk = ~clk;
 
 reg reset = 1, vblank = 0, downloading = 0, joy_read = 0;
+reg cyc = 0, lcd_on = 0, m1_irq = 0;
 integer errors = 0;
 
 // DDR model: 64 words from the replay header word
@@ -34,8 +35,29 @@ always @(posedge clk) begin
 end
 
 wire active; wire [7:0] p1, p2, p3, p4, state, gen, entry_bytes; wire [31:0] index; wire [1:0] sys_mode;
-mc_replay #(.ENTRY_BYTES(EB)) dut (.clk(clk), .reset(reset), .downloading(downloading), .vblank(vblank), .joy_read(joy_read), .ddr_addr(ddr_addr), .ddr_req(ddr_req), .ddr_dout(ddr_dout), .ddr_ready(ddr_ready),
+mc_replay #(.ENTRY_BYTES(EB)) dut (.clk(clk), .reset(reset), .downloading(downloading), .vblank(vblank), .joy_read(joy_read), .cyc(cyc), .lcd_on(lcd_on), .m1_irq(m1_irq),
+	.ddr_addr(ddr_addr), .ddr_req(ddr_req), .ddr_dout(ddr_dout), .ddr_ready(ddr_ready),
 	.active(active), .p1(p1), .p2(p2), .p3(p3), .p4(p4), .index(index), .state(state), .gen(gen), .entry_bytes(entry_bytes), .sys_mode(sys_mode));
+
+// ---- Gambatte frames: CPU cycles and a PPU model ----------------------------
+// With the LCD on, the vblank interrupt line rises 65664 cycles after the
+// switch-on (line 144) and every 70224 after, for 10 lines.
+integer gcyc = 0;      // cycles since the run start
+integer lcd_cyc = 0;   // cycles since the LCD was switched on
+always @(posedge clk) if (cyc) begin
+	if (!lcd_on) begin lcd_cyc <= 0; m1_irq <= 0; end
+	else begin
+		lcd_cyc <= lcd_cyc + 1;
+		m1_irq <= (lcd_cyc >= 65664) && (((lcd_cyc - 65664) % 70224) < 4560);
+	end
+end
+task cycles(input integer n);   // n CPU cycles, one per 8 clocks (33.5 MHz / 4.19 MHz)
+	repeat (n) begin @(posedge clk); cyc <= 1; @(posedge clk); cyc <= 0; repeat (6) @(posedge clk); gcyc = gcyc + 1; end
+endtask
+task at(input integer c, input string what, input integer want);   // run to cycle c + 8 and check the index
+	cycles(c + 8 - gcyc);
+	check($sformatf("cycle %0d %s", c, what), index, want);
+endtask
 
 // write entry i: p1 = i+1, p2 = 0x80+i, p3 = 0x40+i, p4 = 0xC0+i (8 byte layout only), cmd
 task put(input integer i, input [7:0] cmd);
@@ -168,6 +190,49 @@ initial begin
 	load; frame; frame; frame; frame; check("sgb run done", state, 3);
 	arm(4, 8'd22); mem[2] = 64'd1; poll; check("sys_mode menu", sys_mode, 0);
 	load; frame; frame; frame; frame;
+
+	// Gambatte frames (w2 bit 5): the entry advances at libgambatte's frame
+	// ends, counted in CPU cycles (the model in mc_replay.sv); vblank is ignored
+	arm(100, 8'd30); mem[2] = 64'd1 | (64'd1 << 5); poll; check("gambatte armed", state, 1);
+	lcd_on <= 0; load; gcyc = 0;
+	check("gambatte run", state, 2); check("gambatte entry 0", index, 0);
+	frame; check("vblank ignored in gambatte mode", index, 0);
+	// LCD off from power-on: the end event at 70224, then the blank blits every 70224
+	at(70224 - 16, "before the first end", 0);
+	at(70224, "first end event", 1);
+	at(140448, "blank blit", 2);
+	at(210672, "blank blit 2", 3);
+	// LCD on at 220000 with a blank picture pending: the end event at 280896, then
+	// the first mode-1 edge at 285664, then every 70224 (the end events tie)
+	cycles(220000 - gcyc); lcd_on <= 1;
+	at(280896, "end event after LCD on", 4);
+	at(285664, "first mode-1 blit", 5);
+	at(355888, "mode-1 blit", 6);
+	at(426112, "mode-1 blit 2", 7);
+	// LCD off at 427000 with the picture drawn: the blit 1824 on arms (no frame),
+	// the end event at 496336, the blank blit at 499048, then every 70224
+	cycles(427000 - gcyc); lcd_on <= 0;
+	at(428824, "arming blit ends no frame", 7);
+	at(496336, "end event after LCD off", 8);
+	at(499048, "blank blit after LCD off", 9); check("gambatte entry 9", p1, 10);
+	at(569272, "blank blit period", 10);
+	// LCD on at 570000 with a blank pending: the mode-1 edge at 635664 comes before
+	// the end event (639496), which then does not fire
+	cycles(570000 - gcyc); lcd_on <= 1;
+	at(635664, "mode-1 blit before the end event", 11);
+	at(640000, "end event dropped", 11);
+	at(705888, "mode-1 tie", 12);
+	// off at 706000 and on again at 706100, the picture not blank: the first
+	// mode-1 edge (771764) is skipped; the end event at 776112, the edge at 841988
+	cycles(706000 - gcyc); lcd_on <= 0;
+	cycles(706100 - gcyc); lcd_on <= 1;
+	at(771764, "first mode-1 edge skipped", 12);
+	at(776112, "end event", 13);
+	at(841988, "second mode-1 edge", 14);
+	at(846336, "end event tie dropped", 14);
+	at(912212, "mode-1 blit resumes", 15);
+	reset <= 1; repeat (3) @(posedge clk); check("reset aborts gambatte run", state, 4); reset <= 0; repeat (3) @(posedge clk);
+	mem[2] = 64'd1; lcd_on <= 0;
 
 	// a frame edge that lands during a header poll is not lost
 	arm(10, 8'd11); poll; load;
