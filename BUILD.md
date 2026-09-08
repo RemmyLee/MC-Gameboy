@@ -83,6 +83,21 @@ cycle (about 3,300 writes in that time).
 
 ## Reference numbers
 
+`MC-Gameboy_20260908h.rbf` (commit `625f9f1`, default seed, 2026-09-07, `out/MC-Gameboy_20260908h.txt`):
+build g with the DMG boot ROM slot on the root page (`FC5,BIN,Load DMG boot ROM`): the
+firmware matches an MGL file index only against visible root-page F entries, and build g's
+page-4 entry let the boot ROM fall through to the cartridge slot.
+
+| Item | Value |
+|---|---|
+| Wall time | 904 s on the 3960X |
+| Logic (ALMs) | 22,233 / 41,910 (53%) |
+| Registers | 28,706 |
+| RAM blocks | 493 / 553 (89%) |
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 1.672 ns / 2.747 ns / 0.367 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908h.rbf` | 4,033,424 bytes, SHA-256 `79307dc5c710188481097dd1af7005ce29a900ac4e689121ce9d7afdf8628508` |
+
 `MC-Gameboy_20260908g.rbf` (commit `f8e8ca7`, default seed, 2026-09-07, `out/MC-Gameboy_20260908g.txt`):
 build f plus the loadable DMG boot ROM slot (`P4FC5,BIN,Load DMG boot ROM`, ioctl index 5):
 a movie launch loads the boot ROM the emulator ran before the cartridge, offset 0.
