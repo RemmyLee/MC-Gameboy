@@ -98,6 +98,13 @@ module gb (
 	output        mc_fetch,          // one clock per opcode fetch (M1 read, not the interrupt acknowledge)
 	output [15:0] mc_pc,             // the address of that fetch
 	output        mc_vblank_irq,     // the PPU's vblank interrupt line (video.v vblank_l): its rise is the mode-1 time
+	output        mc_video_irq,      // the PPU's STAT interrupt line (video.v irq)
+	output        mc_rd_we,          // one clock per STAT or LY read, at the CPU clock the T80 latches the data (TState 3)
+	output  [1:0] mc_rd_kind,        // 1: STAT, 2: LY
+	output  [7:0] mc_rd_val,         // the byte the CPU latched
+	output        mc_irq_ack,        // one clock per interrupt acknowledge (the M1 with IORQ that starts the dispatch)
+	output  [7:0] mc_vcnt,           // the PPU's line counter
+	output  [8:0] mc_hcyc,           // the PPU's cycle in the line
 	input   [9:0] mc_bus_adr,
 	output [63:0] mc_bus_dout,
 	output        mc_bus_free,       // 0 while a save or load owns the bus
@@ -790,6 +797,8 @@ video video (
 	.cpu_wr      ( !cpu_wr_n_edge ),
 	.cpu_di      ( cpu_do        ),
 	.cpu_do      ( video_do      ),
+	.mc_vcnt     ( mc_vcnt       ),
+	.mc_hcyc     ( mc_hcyc       ),
 
 	.cpu_phi      ( cpu_phi       ),
 	.cpu_phi_r_ce ( cpu_phi_r_ce  ),
@@ -1293,6 +1302,20 @@ always @(posedge clk_sys) if (ce_cpu) begin
 end
 assign mc_stat_read  = ce_cpu & sel_mc_stat & ~cpu_rd_n & ~mc_stat_rd_d;
 assign mc_ly_read    = ce_cpu & sel_mc_ly & ~cpu_rd_n & ~mc_ly_rd_d;
+// The T80 asserts RD_n at TState 1 (GBse.vhd) and latches DI at TState 3: the
+// strobe above is the TState 2 clock enable, the data goes in one CPU clock later.
+reg mc_rd_s = 0; reg [1:0] mc_rd_kind_r = 0;
+always @(posedge clk_sys) if (ce_cpu) begin
+	mc_rd_s      <= mc_stat_read | mc_ly_read;
+	mc_rd_kind_r <= mc_stat_read ? 2'd1 : 2'd2;
+end
+assign mc_rd_we   = ce_cpu & mc_rd_s;
+assign mc_rd_kind = mc_rd_kind_r;
+assign mc_rd_val  = cpu_di;
+reg mc_ack_d = 0;
+always @(posedge clk_sys) if (ce_cpu) mc_ack_d <= irq_ack;
+assign mc_irq_ack  = ce_cpu & irq_ack & ~mc_ack_d;
+assign mc_video_irq = video_irq;
 assign mc_dma_write  = ce_cpu & (cpu_addr == 16'hff46) & ~cpu_wr_n_edge;
 assign mc_lcdc_write = ce_cpu & (cpu_addr == 16'hff40) & ~cpu_wr_n_edge;
 

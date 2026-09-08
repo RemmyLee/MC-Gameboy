@@ -124,6 +124,9 @@ module mc_telemetry
 	input             trace_we,
 	input      [15:0] trace_pc,
 	input      [15:0] trace_cyc,
+	input             aux_we,       // an extra ring entry (a PPU-timeline event word): taken when aux_ready
+	input      [31:0] aux_word,
+	output            aux_ready,
 
 	// DDR write channel (64 bit word address inside the 0x30000000 window)
 	output reg [24:0] ddr_addr,
@@ -219,6 +222,7 @@ reg         marker_pend = 0, draining = 0, frame_pend = 0;
 reg  [15:0] marker_frame = 0;
 // a vblank edge is taken while idle or while a trace drain write is in flight
 wire        accept = frame_start && (st == IDLE || draining);
+assign aux_ready = (TRACE != 0) && !trace_we && !marker_pend && tr_count != 10'd1023;
 
 always @(posedge clk) begin
 	tr_q <= tr_fifo[tr_ra];
@@ -230,13 +234,16 @@ always @(posedge clk) begin
 			marker_pend  <= 1;
 			marker_frame <= frame[15:0] + 16'd1;
 		end
-		if (trace_we || marker_pend) begin
+		if (trace_we || marker_pend || aux_we) begin
 			if (tr_count == 10'd1023) begin
 				if (tr_drops != 16'hFFFF) tr_drops <= tr_drops + 16'd1;
 			end
 			else begin
-				tr_fifo[tr_wp] <= trace_we ? {(trace_cyc == 16'hFFFF) ? 16'hFFFE : trace_cyc, trace_pc}
-				                           : {16'hFFFF, marker_frame};
+				// a fetch cycle of FFF0-FFFF is written FFEF: the top 16 values mark
+				// the frame marker (FFFF) and the aux words (FFF0-FFFB)
+				tr_fifo[tr_wp] <= trace_we ? {(trace_cyc >= 16'hFFF0) ? 16'hFFEF : trace_cyc, trace_pc}
+				                : marker_pend ? {16'hFFFF, marker_frame}
+				                : aux_word;
 				tr_wp <= tr_wp + 10'd1;
 			end
 			if (!trace_we) marker_pend <= 0;   // the marker went (or was dropped)

@@ -76,6 +76,7 @@ wire [31:0] frame;
 localparam [7:0] EB = (PAD_COUNT == 4) ? 8'd8 : 8'd4;   // what the replay module would report
 
 reg tr_we = 0; reg [15:0] tr_pc = 0, tr_cyc = 0;
+reg ax_we = 0; reg [31:0] ax_word = 0; wire ax_ready;
 task fetch(input [15:0] pc, input [15:0] cyc);
 	@(posedge clk); tr_we <= 1; tr_pc <= pc; tr_cyc <= cyc;
 	@(posedge clk); tr_we <= 0;
@@ -85,7 +86,7 @@ endtask
 mc_telemetry #(.MAGIC(MAGIC), .RAM_ADDR_W(RAM_ADDR_W), .PAD_COUNT(PAD_COUNT), .REGS_KIND((PAD_COUNT == 4) ? 1 : 0), .SLOT_WORDS(SLOT_WORDS),
 	.TRACE(TRACE), .RING_WORD(25'h1800000 + RING), .RING_W(10)) dut (
 	.clk(clk), .reset(reset), .enable(enable), .vblank(vblank), .scanline(scanline), .cycle(cycle),
-	.trace_we(tr_we), .trace_pc(tr_pc), .trace_cyc(tr_cyc),
+	.trace_we(tr_we), .trace_pc(tr_pc), .trace_cyc(tr_cyc), .aux_we(ax_we), .aux_word(ax_word), .aux_ready(ax_ready),
 	.clk_hz(32'd21477272), .sys_type(3'd0), .cpu_regs(cpu_regs),
 	.bus_adr(bus_adr), .bus_dout(bus_dout), .bus_free(bus_free),
 	.ram_hold(hold), .ram_rd_addr(rd_addr), .ram_rd_data(rd_data), .bm_addr(bm_addr), .bm_data(bm_data), .ram_torn(torn),
@@ -227,11 +228,11 @@ initial begin
 		fetch(16'h0103, 16'd14);
 		repeat (20) @(posedge clk);
 		check("ring w3 two fetches", ddr[RING+3], {16'd14, 16'h0103, 16'd10, 16'h0100});
-		fetch(16'h2000, 16'hFFFF);   // a real cycle of FFFF is written FFFE
+		fetch(16'h2000, 16'hFFFF);   // a real cycle of FFF0-FFFF is written FFEF
 		check("fetch waits for a pair", ddr_seen[RING+4], 0);
 		frame_tick;                  // marker 7 pairs with it, drained after the snapshot
 		repeat (20) @(posedge clk);
-		check("ring w4 fetch + marker 7", ddr[RING+4], {16'hFFFF, 16'd7, 16'hFFFE, 16'h2000});
+		check("ring w4 fetch + marker 7", ddr[RING+4], {16'hFFFF, 16'd7, 16'hFFEF, 16'h2000});
 		check("hdr h6 ptr after frame 7", ddr[HDR+6][31:0], 32'd4);
 		check("frame 7 slot tail", ddr[SLOT0 + 3*SLOT_WORDS + W_TAIL][31:0], 32'd7);
 		// ---- 700 fetches during frame 8's snapshot: the FIFO (1023 entries) must
@@ -257,6 +258,21 @@ initial begin
 			end
 		check("fetch 699 waits for a pair", ddr_seen[RING+355], 0);
 		check("ring ptr after the drain", dut.ring_ptr, 10'd355);
+		// ---- aux words: three in a row pair with the pending fetch 699, then each other
+		@(posedge clk); ax_we <= 1; ax_word <= 32'hFFF1_83_7F;
+		@(posedge clk); ax_word <= 32'hFFFA_0123;
+		@(posedge clk); ax_word <= 32'hFFFB_4567;
+		@(posedge clk); ax_we <= 0;
+		fetch(16'h0200, 16'hFFF3);   // a fetch cycle in FFF0-FFFF is written FFEF
+		wait (dut.st == dut.IDLE && dut.tr_count < 2);
+		repeat (20) @(posedge clk);
+		check("ring w355 fetch 699 + aux 1", ddr[RING+355], {32'hFFF1837F, 16'(100 + 699), 16'(16'h3000 + 699)});
+		check("ring w356 aux 2 + aux 3", ddr[RING+356], {32'hFFFB4567, 32'hFFFA0123});
+		check("fetch FFF3 waits for a pair", ddr_seen[RING+357], 0);
+		fetch(16'h0201, 16'd7);
+		wait (dut.st == dut.IDLE && dut.tr_count < 2);
+		repeat (20) @(posedge clk);
+		check("ring w357 remapped fetch", ddr[RING+357], {16'd7, 16'h0201, 16'hFFEF, 16'h0200});
 	end
 	else begin
 		check("hdr h3 no trace", ddr[HDR+3][1], 1'b0);

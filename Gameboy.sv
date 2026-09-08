@@ -284,6 +284,10 @@ wire        mc_wr, mc_joy_read, mc_strobe, mc_vblank_irq;
 wire        mc_stat_read, mc_ly_read, mc_dma_write, mc_lcdc_write;
 wire        mc_fetch;
 wire [15:0] mc_pc;
+wire        mc_video_irq, mc_rd_we, mc_irq_ack;
+wire  [1:0] mc_rd_kind;
+wire  [7:0] mc_rd_val, mc_vcnt;
+wire  [8:0] mc_hcyc;
 wire [63:0] mc_bus_dout_gb;
 wire [15:0] mc_wr_addr;
 wire  [7:0] mc_wr_data;
@@ -614,6 +618,13 @@ gb gb (
 	.mc_fetch      ( mc_fetch     ),
 	.mc_pc         ( mc_pc        ),
 	.mc_vblank_irq ( mc_vblank_irq ),
+	.mc_video_irq  ( mc_video_irq ),
+	.mc_rd_we      ( mc_rd_we     ),
+	.mc_rd_kind    ( mc_rd_kind   ),
+	.mc_rd_val     ( mc_rd_val    ),
+	.mc_irq_ack    ( mc_irq_ack   ),
+	.mc_vcnt       ( mc_vcnt      ),
+	.mc_hcyc       ( mc_hcyc      ),
 	.mc_bus_adr    ( mc_bus_adr   ),
 	.mc_bus_dout   ( mc_bus_dout_gb ),
 	.mc_bus_free   ( mc_bus_free  ),
@@ -1346,6 +1357,62 @@ always @(posedge clk_sys) begin
 end
 wire [63:0] mc_stamps = {12'd0, mc_rd_seen, mc_fcyc, mc_rd_last, mc_rd_first};
 
+// PPU-timeline events for the instruction trace (build p): every STAT or LY read
+// with the byte the CPU latched, every rise of the vblank and STAT interrupt
+// lines, and every interrupt acknowledge, each stamped with the PPU's own line
+// and cycle and the frame cycle. Three ring entries per event:
+//   {FFF0 | kind, val[7:0], vcnt[7:0]}  {FFFA, 7'd0, hcyc[8:0]}  {FFFB, fcyc[15:0]}
+// kind 1 STAT read, 2 LY read, 3 interrupt line rise (val bit 0 vblank, bit 1
+// STAT), 4 interrupt acknowledge. Two sources (CPU side, PPU side) can fire on
+// the same clock; each holds one burst, the CPU burst goes first; a source that
+// fires again before its burst went is dropped (mc_aux_drops).
+reg        mc_vbl_d = 0, mc_vid_d = 0;
+reg        mc_axc_pend = 0, mc_axp_pend = 0;
+reg [15:0] mc_axc_w0 = 0, mc_axc_w1 = 0, mc_axc_w2 = 0, mc_axp_w0 = 0, mc_axp_w1 = 0, mc_axp_w2 = 0;
+reg  [1:0] mc_ax_step = 0;     // 0: idle, 1..3: word n of the current burst goes out
+reg        mc_ax_src = 0;      // 0: CPU burst, 1: PPU burst
+reg  [7:0] mc_aux_drops = 0;
+reg        mc_aux_we = 0;
+reg [31:0] mc_aux_word = 0;
+wire       mc_aux_ready;
+wire       mc_cpu_ev = mc_rd_we | mc_irq_ack;
+wire       mc_ppu_ev = (mc_vblank_irq & ~mc_vbl_d) | (mc_video_irq & ~mc_vid_d);
+always @(posedge clk_sys) begin
+	mc_vbl_d <= mc_vblank_irq;
+	mc_vid_d <= mc_video_irq;
+	if (mc_cpu_ev) begin
+		if (mc_axc_pend && mc_aux_drops != 8'hFF) mc_aux_drops <= mc_aux_drops + 8'd1;
+		mc_axc_pend <= 1;
+		mc_axc_w0 <= {mc_irq_ack ? 4'd4 : {2'd0, mc_rd_kind}, mc_irq_ack ? 8'd0 : mc_rd_val, mc_vcnt};
+		mc_axc_w1 <= {7'd0, mc_hcyc};
+		mc_axc_w2 <= mc_fcyc[15:0];
+	end
+	if (mc_ppu_ev) begin
+		if (mc_axp_pend && mc_aux_drops != 8'hFF) mc_aux_drops <= mc_aux_drops + 8'd1;
+		mc_axp_pend <= 1;
+		mc_axp_w0 <= {4'd3, 6'd0, mc_video_irq & ~mc_vid_d, mc_vblank_irq & ~mc_vbl_d, mc_vcnt};
+		mc_axp_w1 <= {7'd0, mc_hcyc};
+		mc_axp_w2 <= mc_fcyc[16] ? 16'hFFEF : mc_fcyc[15:0];
+	end
+	mc_aux_we <= 0;
+	if (mc_ax_step == 0) begin
+		if (mc_axc_pend && !mc_cpu_ev) begin mc_ax_src <= 0; mc_ax_step <= 1; end
+		else if (mc_axp_pend && !mc_ppu_ev) begin mc_ax_src <= 1; mc_ax_step <= 1; end
+	end
+	else if (mc_aux_ready) begin
+		mc_aux_we <= 1;
+		case (mc_ax_step)
+		2'd1: mc_aux_word <= {12'hFFF, mc_ax_src ? mc_axp_w0[15:12] : mc_axc_w0[15:12], mc_ax_src ? mc_axp_w0[11:0] : mc_axc_w0[11:0]};
+		2'd2: mc_aux_word <= {16'hFFFA, mc_ax_src ? mc_axp_w1 : mc_axc_w1};
+		default: begin
+			mc_aux_word <= {16'hFFFB, mc_ax_src ? mc_axp_w2 : mc_axc_w2};
+			if (mc_ax_src) mc_axp_pend <= 0; else mc_axc_pend <= 0;
+		end
+		endcase
+		mc_ax_step <= (mc_ax_step == 2'd3) ? 2'd0 : mc_ax_step + 2'd1;
+	end
+end
+
 // Per-frame counts of the PPU accesses the game paces itself with, latched on
 // the same lcd_vsync edge and presented as telemetry bus words 60..62 (the
 // save-state register bus stops at index 5):
@@ -1429,6 +1496,9 @@ mc_telemetry #(
 	.trace_we(mc_fetch),
 	.trace_pc(mc_pc),
 	.trace_cyc(mc_fcyc[15:0]),
+	.aux_we(mc_aux_we),
+	.aux_word(mc_aux_word),
+	.aux_ready(mc_aux_ready),
 	.ddr_addr(mc_ddr_addr),
 	.ddr_din(mc_ddr_din),
 	.ddr_req(mc_ddr_req),

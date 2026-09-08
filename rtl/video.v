@@ -38,6 +38,8 @@ module video (
 	input  cpu_wr,
 	input [7:0] cpu_di,
 	output [7:0] cpu_do,
+	output [7:0] mc_vcnt,        // MiSTer Control: the PPU's line counter (v_cnt)
+	output [8:0] mc_hcyc,        // MiSTer Control: the PPU's cycle in the line, 0-455 ({h_cnt, h_div_cnt})
 
 	input cpu_phi,
 	input cpu_phi_r_ce,
@@ -179,6 +181,8 @@ reg [6:0] h_cnt;            // 0-113 at 1MHz
 reg [1:0] h_div_cnt;        // Divide by 4
 reg [7:0] v_cnt;            // max 153
 wire [7:0] ly = v_cnt;
+assign mc_vcnt = v_cnt;
+assign mc_hcyc = {h_cnt, h_div_cnt};
 
 // ff45 line counter compare
 reg [7:0] lyc_r_dmg, lyc_r_gbc;
