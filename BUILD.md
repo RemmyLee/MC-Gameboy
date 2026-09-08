@@ -84,6 +84,60 @@ cycle (about 3,300 writes in that time).
 
 ## Reference numbers
 
+`MC-Gameboy_20260908p.rbf` (commit `b1d91fd`, default seed, 2026-09-08, `out/MC-Gameboy_20260908p.txt`):
+build o plus PPU-timeline events in the trace ring: every STAT and LY read with the byte the CPU
+latched, every rise of the vblank and STAT interrupt lines, every interrupt acknowledge, each with the
+PPU's line and cycle and the frame cycle (the event's first word is 28 bits wide in this build, read by
+mctrace as built; commit `ca7ed8c` sizes it).
+
+| Item | Value |
+|---|---|
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 0.700 ns / 1.874 ns / 1.969 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908p.rbf` | 4,041,384 bytes, SHA-256 `7fcd81f998360dd7a562bea489c3fb8f619b65d75574e2b01139eedb320ff0ba` |
+
+`MC-Gameboy_20260908o.rbf` (commit `610b5db`, default seed, 2026-09-08, `out/MC-Gameboy_20260908o.txt`):
+build n plus the trace FIFO drained during the snapshot once it is half full (build n lost every
+frame's fetches from about line 20 to 30: the snapshot held the DDR path ~13.8k CPU cycles).
+
+| Item | Value |
+|---|---|
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 0.231 ns / 1.582 ns / 2.261 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908o.rbf` | 4,045,024 bytes, SHA-256 `46cda4aee3277d56bbb0a0bf30132c1444b53379ac0b31018da11890a6bf81f5` |
+
+`MC-Gameboy_20260908n.rbf` (commit `ddbc5d9`, default seed, 2026-09-08, `out/MC-Gameboy_20260908n.txt`):
+build l plus the instruction trace ring: every opcode fetch with its frame cycle, a 1024-entry FIFO
+streamed to an 8 MB DDR ring at 0x3D000000 with a marker per frame; header h6 carries the pointer, h3
+bit 1 says TRACE. (Build m, commit `c8cb065`, put the ring at 0x3C100000 on top of the replay
+buffer and is unusable.)
+
+| Item | Value |
+|---|---|
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 0.093 ns / 1.954 ns / 2.733 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908n.rbf` | 4,060,516 bytes, SHA-256 `82776be3024aa7166217506985a2554f88b547e7dd9a82147b083ade8f782377` |
+
+`MC-Gameboy_20260908l.rbf` (commit `0c452cd`, default seed, 2026-09-08, `out/MC-Gameboy_20260908l.txt`):
+build k plus telemetry bus words 60-62: per-frame STAT/LY reads, OAM DMA and LCDC writes with
+their first/last cycles, and the PPU's mode 3/2/0 cycle totals.
+
+| Item | Value |
+|---|---|
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 0.174 ns / 1.565 ns / 2.760 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908l.rbf` | 4,035,024 bytes, SHA-256 `1772243133c4d4d6b85eb8c160d15cea71ff3d8fd76653ec8519316c6bd1deb4` |
+
+`MC-Gameboy_20260908k.rbf` (commit `4ee434f`, default seed, 2026-09-08, `out/MC-Gameboy_20260908k.txt`):
+build j plus slot word 1 = the pad-read cycle stamps (first and last $FF00 read of the frame, the
+frame length, a read-happened bit).
+
+| Item | Value |
+|---|---|
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 0.485 ns / 1.728 ns / 2.967 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908k.rbf` | 4,011,572 bytes, SHA-256 `8d66a7da2b72c33889b1b23747bd225f5394dfce9057b114a3334d2a7e6607df` |
+
 `MC-Gameboy_20260908j.rbf` (commit `9eb7b99`, default seed, 2026-09-08, `releases/MC-Gameboy_20260908j.txt`):
 build i plus Gambatte frames (replay header w2 bit 5): the entry advances on libgambatte's
 frame ends counted in CPU cycles, for BizHawk Gambatte movies (Darkwing Duck 6625M).
