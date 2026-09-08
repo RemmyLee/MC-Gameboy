@@ -1248,7 +1248,16 @@ mc_replay #(.ENTRY_BYTES(8), .CLK_HZ(32'd33554432)) mc_replay
 	.clk(clk_sys),
 	.reset(reset),
 	.downloading(cart_download),
-	.vblank(lcd_mode == 2'b01),   // entry N at the PPU's vblank entry (line 144), where GBHawk latches its pads; with lcd_vsync (line 0) a one-frame tap read during the picture landed a frame late (SML2 3746M, 2026-09-07)
+	// entry N at the rising edge of GBHawk's in_vblank: line 144 with the LCD on
+	// (GB_PPU.cs:190-193), and the LCD switched off outside vblank (with the LCD
+	// off the PPU tick holds in_vblank true, GB_PPU.cs:434-440; switching it on
+	// clears it, :198-201); the pads latch on that edge (GBHawk.IEmulator.cs:143-150).
+	// With lcd_mode alone the core missed the entries Contra's title routine consumes
+	// by switching the LCD on and off within a frame (4199M: movie frames 350, 358,
+	// 362, 366 are non-lag with LCDC bit 7 clear), and ran 3 entries behind from
+	// there (2026-09-08). With lcd_vsync (line 0) a one-frame tap read during the
+	// picture landed a frame late (SML2 3746M, 2026-09-07).
+	.vblank(~lcd_on | (lcd_mode == 2'b01)),
 	.joy_read(mc_joy_read),
 	.ddr_addr(mc_rd_addr),
 	.ddr_req(mc_rd_req),
