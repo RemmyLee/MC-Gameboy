@@ -125,8 +125,15 @@ localparam CONF_STR = {
 	"P4,MiSTer Control;",
 	"P4-;",
 	"P4O[51],Telemetry,On,Off;",
-	"P4FC5,BIN,Load DMG boot ROM;",   // ioctl index 5 = dmg_boot_download: a movie launch loads the boot ROM the emulator ran before the cartridge (MiSTer Control MGL)
 
+	// ioctl index 5 = dmg_boot_download: a movie launch loads the boot ROM the emulator ran
+	// before the cartridge (MiSTer Control MGL). A root-page, visible entry: the firmware
+	// matches an MGL <file index="5"> only against root-page F entries (Main_MiSTer
+	// menu.cpp:1976 inpage, :2034 the match, inside !h && inpage) and will not select a
+	// disabled one (:2408 if (p && !d)); an unmatched item loads through entry 0, the
+	// cartridge slot (mra_loader.cpp:1436 memset, menu.cpp:2320). Build g had it on P4 and
+	// the boot ROM went in as a 256-byte cartridge (index 1.2).
+	"FC5,BIN,Load DMG boot ROM;",
 	"-;",
 	"R0,Reset;",
 	"J1,A,B,Select,Start,FastForward,Savestates,Rewind;",
