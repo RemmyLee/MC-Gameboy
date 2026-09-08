@@ -282,6 +282,8 @@ wire        mc_ddr_req, mc_ddr_ready;
 wire [31:0] mc_frame;
 wire        mc_wr, mc_joy_read, mc_strobe, mc_vblank_irq;
 wire        mc_stat_read, mc_ly_read, mc_dma_write, mc_lcdc_write;
+wire        mc_fetch;
+wire [15:0] mc_pc;
 wire [63:0] mc_bus_dout_gb;
 wire [15:0] mc_wr_addr;
 wire  [7:0] mc_wr_data;
@@ -609,6 +611,8 @@ gb gb (
 	.mc_ly_read    ( mc_ly_read   ),
 	.mc_dma_write  ( mc_dma_write ),
 	.mc_lcdc_write ( mc_lcdc_write),
+	.mc_fetch      ( mc_fetch     ),
+	.mc_pc         ( mc_pc        ),
 	.mc_vblank_irq ( mc_vblank_irq ),
 	.mc_bus_adr    ( mc_bus_adr   ),
 	.mc_bus_dout   ( mc_bus_dout_gb ),
@@ -1389,7 +1393,8 @@ mc_telemetry #(
 	.RAM_ADDR_W(16),
 	.PAD_COUNT(4),
 	.REGS_KIND(1),                   // no packed CPU word: the registers are on the bus (reg_savestates.vhd index 1..5)
-	.SLOT_WORDS(25'd9344)            // 74752 byte slots (>= 73 + 65536 * 9 / 64 words)
+	.SLOT_WORDS(25'd9344),           // 74752 byte slots (>= 73 + 65536 * 9 / 64 words)
+	.TRACE(1)                        // instruction trace ring at 0x3C100000, 8 MB
 ) mc_telemetry
 (
 	.clk(clk_sys),
@@ -1421,6 +1426,9 @@ mc_telemetry #(
 	.replay_state(mc_rp_state),
 	.replay_gen(mc_rp_gen),
 	.replay_entry_bytes(mc_rp_entry_bytes),
+	.trace_we(mc_fetch),
+	.trace_pc(mc_pc),
+	.trace_cyc(mc_fcyc[15:0]),
 	.ddr_addr(mc_ddr_addr),
 	.ddr_din(mc_ddr_din),
 	.ddr_req(mc_ddr_req),

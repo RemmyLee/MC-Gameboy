@@ -95,6 +95,8 @@ module gb (
 	output        mc_ly_read,        // one clock per CPU read of $FF44 (LY)
 	output        mc_dma_write,      // one clock per CPU write of $FF46 (OAM DMA)
 	output        mc_lcdc_write,     // one clock per CPU write of $FF40 (LCDC)
+	output        mc_fetch,          // one clock per opcode fetch (M1 read, not the interrupt acknowledge)
+	output [15:0] mc_pc,             // the address of that fetch
 	output        mc_vblank_irq,     // the PPU's vblank interrupt line (video.v vblank_l): its rise is the mode-1 time
 	input   [9:0] mc_bus_adr,
 	output [63:0] mc_bus_dout,
@@ -1293,5 +1295,13 @@ assign mc_stat_read  = ce_cpu & sel_mc_stat & ~cpu_rd_n & ~mc_stat_rd_d;
 assign mc_ly_read    = ce_cpu & sel_mc_ly & ~cpu_rd_n & ~mc_ly_rd_d;
 assign mc_dma_write  = ce_cpu & (cpu_addr == 16'hff46) & ~cpu_wr_n_edge;
 assign mc_lcdc_write = ce_cpu & (cpu_addr == 16'hff40) & ~cpu_wr_n_edge;
+
+// Opcode fetches for the instruction trace: the first CPU clock enable of an
+// M1 read (the interrupt acknowledge is an M1 with IORQ). RD_n stays low for
+// more than one enable, so the pulse is its first clock, as for the joypad.
+reg mc_m1_d = 0;
+always @(posedge clk_sys) if (ce_cpu) mc_m1_d <= ~cpu_m1_n & ~cpu_rd_n;
+assign mc_fetch = ce_cpu & ~cpu_m1_n & ~cpu_rd_n & cpu_iorq_n & ~mc_m1_d;
+assign mc_pc    = cpu_addr_raw;
 
 endmodule

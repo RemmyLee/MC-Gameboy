@@ -15,13 +15,15 @@ module tb_mc;
 parameter RAM_ADDR_W = 11;
 parameter PAD_COUNT  = 2;
 parameter SLOT_WORDS = 512;
+parameter TRACE = 0;
 localparam RAM_BYTES = 1 << RAM_ADDR_W;
 localparam RAM_WORDS = RAM_BYTES / 8;
 localparam BM_WORDS  = RAM_BYTES / 64;
 localparam W_BM      = 72 + RAM_WORDS;
 localparam W_TAIL    = W_BM + BM_WORDS;
 localparam [RAM_ADDR_W-1:0] LAST = {RAM_ADDR_W{1'b1}};   // the highest RAM address
-localparam integer WIN = 512 + 4 * SLOT_WORDS;            // DDR words the sink records
+localparam integer RING = 512 + 4 * SLOT_WORDS;           // the trace ring sits after the slots (64 words)
+localparam integer WIN = RING + 64;                        // DDR words the sink records
 localparam [63:0] MAGIC = (RAM_ADDR_W == 11) ? 64'h01005345_4E2D434D : 64'h01000042_472D434D;   // "MC-NES\0\1" / "MC-GB\0\0\1"
 
 reg clk = 0;
@@ -73,8 +75,17 @@ reg [7:0] j1 = 8'h12, j2 = 8'h34, j3 = 8'h56, j4 = 8'h78; reg strobe = 0;
 wire [31:0] frame;
 localparam [7:0] EB = (PAD_COUNT == 4) ? 8'd8 : 8'd4;   // what the replay module would report
 
-mc_telemetry #(.MAGIC(MAGIC), .RAM_ADDR_W(RAM_ADDR_W), .PAD_COUNT(PAD_COUNT), .REGS_KIND((PAD_COUNT == 4) ? 1 : 0), .SLOT_WORDS(SLOT_WORDS)) dut (
+reg tr_we = 0; reg [15:0] tr_pc = 0, tr_cyc = 0;
+task fetch(input [15:0] pc, input [15:0] cyc);
+	@(posedge clk); tr_we <= 1; tr_pc <= pc; tr_cyc <= cyc;
+	@(posedge clk); tr_we <= 0;
+	repeat (30) @(posedge clk);
+endtask
+
+mc_telemetry #(.MAGIC(MAGIC), .RAM_ADDR_W(RAM_ADDR_W), .PAD_COUNT(PAD_COUNT), .REGS_KIND((PAD_COUNT == 4) ? 1 : 0), .SLOT_WORDS(SLOT_WORDS),
+	.TRACE(TRACE), .RING_WORD(25'h1800000 + RING), .RING_W(6)) dut (
 	.clk(clk), .reset(reset), .enable(enable), .vblank(vblank), .scanline(scanline), .cycle(cycle),
+	.trace_we(tr_we), .trace_pc(tr_pc), .trace_cyc(tr_cyc),
 	.clk_hz(32'd21477272), .sys_type(3'd0), .cpu_regs(cpu_regs),
 	.bus_adr(bus_adr), .bus_dout(bus_dout), .bus_free(bus_free),
 	.ram_hold(hold), .ram_rd_addr(rd_addr), .ram_rd_data(rd_data), .bm_addr(bm_addr), .bm_data(bm_data), .ram_torn(torn),
@@ -132,7 +143,7 @@ initial begin
 	check("hdr magic", ddr[HDR+0], MAGIC);
 	check("hdr h1", ddr[HDR+1], {32'(SLOT_WORDS * 8), 32'd3});
 	check("hdr h2", ddr[HDR+2], {32'd4, 32'd1});
-	check("hdr h3", ddr[HDR+3], {24'd0, 8'd2, 32'd1});
+	check("hdr h3", ddr[HDR+3], {24'd0, 8'd2, 32'(1 + 2 * TRACE)});
 	check("hdr h5", ddr[HDR+5], {EB, 8'd64, 8'((PAD_COUNT == 4) ? 1 : 0), 8'(PAD_COUNT), 32'(RAM_BYTES)});
 	check("slot w3 replay/reads", ddr[slot+3], {16'd2, 8'd9, 8'd2, 32'd77});
 	check("slot w0", ddr[slot+0], {7'd0, cycle, 7'd0, scanline, 32'd1});
@@ -180,7 +191,7 @@ initial begin
 	for (i = 0; i < WIN; i = i + 1) ddr_seen[i] = 0;
 	frame_tick;
 	check("off: hdr h2", ddr[HDR+2][31:0], 32'd4);
-	check("off: hdr h3 flags", ddr[HDR+3][31:0], 32'd0);
+	check("off: hdr h3 flags", ddr[HDR+3][31:0], 32'(2 * TRACE));
 	check("off: slot untouched", ddr_seen[SLOT0 + 0*SLOT_WORDS], 0);
 
 	// ---- frame 5: bus busy mid-read: flag clears, RAM still written
@@ -199,6 +210,36 @@ initial begin
 	check("bus busy: regs flag clear", ddr[slot+2][24], 1'b0);
 	check("bus busy: ram present", ddr[slot+72+0][7:0], 8'h55);
 	check("bus busy: tail", ddr[slot+W_TAIL][31:0], 32'd5);
+
+	if (TRACE) begin
+		// ---- the instruction trace: every vblank edge queued a marker, so the
+		// markers of frames 1..4 filled ring words 0 and 1 in pairs; marker 5
+		// waits. Frame 6's marker pairs with it, then fetches follow.
+		check("ring w0 markers 1,2", ddr[RING+0], {16'hFFFF, 16'd2, 16'hFFFF, 16'd1});
+		check("ring w1 markers 3,4", ddr[RING+1], {16'hFFFF, 16'd4, 16'hFFFF, 16'd3});
+		frame_tick;
+		repeat (20) @(posedge clk);
+		check("ring w2 markers 5,6", ddr[RING+2], {16'hFFFF, 16'd6, 16'hFFFF, 16'd5});
+		check("hdr h6 ptr after frame 6", ddr[HDR+6][31:0], 32'd2);
+		check("hdr h6 ring size", ddr[HDR+6][63:56], 8'd6);
+		check("hdr h3 trace bit", ddr[HDR+3][1], 1'b1);
+		fetch(16'h0100, 16'd10);
+		fetch(16'h0103, 16'd14);
+		repeat (20) @(posedge clk);
+		check("ring w3 two fetches", ddr[RING+3], {16'd14, 16'h0103, 16'd10, 16'h0100});
+		fetch(16'h2000, 16'hFFFF);   // a real cycle of FFFF is written FFFE
+		check("fetch waits for a pair", ddr_seen[RING+4], 0);
+		frame_tick;                  // marker 7 pairs with it, drained after the snapshot
+		repeat (20) @(posedge clk);
+		check("ring w4 fetch + marker 7", ddr[RING+4], {16'hFFFF, 16'd7, 16'hFFFE, 16'h2000});
+		check("hdr h6 ptr after frame 7", ddr[HDR+6][31:0], 32'd4);
+		check("frame 7 slot tail", ddr[SLOT0 + 3*SLOT_WORDS + W_TAIL][31:0], 32'd7);
+	end
+	else begin
+		check("hdr h3 no trace", ddr[HDR+3][1], 1'b0);
+		check("hdr h6 no ring", ddr[HDR+6], 64'd0);
+		check("ring untouched", ddr_seen[RING], 0);
+	end
 
 	$display("RAM_ADDR_W=%0d PAD_COUNT=%0d SLOT_WORDS=%0d: %0d DDR writes over 5 frames", RAM_ADDR_W, PAD_COUNT, SLOT_WORDS, ddr_writes);
 	if (errors == 0) $display("PASS"); else $display("%0d FAILURES", errors);

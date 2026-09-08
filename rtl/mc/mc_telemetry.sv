@@ -22,6 +22,15 @@
 //       regs kind: 0 = slot word 1 holds the CPU registers as T65 packs them
 //       (NES); 1 = slot word 1 is unused, the registers are on the bus words
 //       (Gameboy: reg_savestates.vhd index 1..5)
+//   h6  [31:0] instruction trace ring write pointer (words)  [47:32] fetches
+//       dropped (FIFO full, saturates)  [63:56] ring size, log2 words (0: none)
+//       With TRACE = 1 (h3 bit 1 set) the core streams an instruction trace:
+//       every opcode fetch as {cycle[15:0] since the frame's vblank edge,
+//       PC[15:0]}, two per 64 bit word (the earlier in [31:0]), into a ring of
+//       2^RING_W words at RING_WORD; a marker {16'hFFFF, frame[15:0]} precedes
+//       a frame's first fetch (a real cycle of 0xFFFF is written 0xFFFE).
+//       Fetches queue in a 1024 entry FIFO while a snapshot holds the DDR port
+//       and drain between snapshots.
 // The header is written every frame, also while telemetry is off, so a reader
 // can tell "off" (frame advances, bit0 clear) from "no MC core" (no magic).
 // Layout 2 (the shipped MC-NES_20260904) had no h5; its sizes are the NES
@@ -65,7 +74,10 @@ module mc_telemetry
 	parameter        REGS_KIND  = 0,                      // header h5[47:40]
 	parameter [24:0] SLOT_WORDS = 25'd512,                // slot stride in 64 bit words (>= 73 + RAM bytes * 9/64)
 	parameter [24:0] HEADER_WORD = 25'h1800000,           // (0x3C000000 - 0x30000000) >> 3
-	parameter [24:0] SLOT0_WORD  = 25'h1800200            // (0x3C001000 - 0x30000000) >> 3
+	parameter [24:0] SLOT0_WORD  = 25'h1800200,           // (0x3C001000 - 0x30000000) >> 3
+	parameter        TRACE       = 0,                     // 1: stream the instruction trace (h3 bit 1, h6)
+	parameter [24:0] RING_WORD   = 25'h1820000,           // (0x3C100000 - 0x30000000) >> 3
+	parameter        RING_W      = 20                     // ring size, log2 words (8 MB)
 )
 (
 	input             clk,
@@ -106,6 +118,11 @@ module mc_telemetry
 	input       [7:0] replay_state,
 	input       [7:0] replay_gen,
 	input       [7:0] replay_entry_bytes,
+
+	// instruction trace (TRACE = 1): one clock per opcode fetch
+	input             trace_we,
+	input      [15:0] trace_pc,
+	input      [15:0] trace_cyc,
 
 	// DDR write channel (64 bit word address inside the 0x30000000 window)
 	output reg [24:0] ddr_addr,
@@ -158,9 +175,9 @@ end
 wire [1:0] next_slot = frame[1:0] + 2'd1;   // 2 bit wire: wraps
 
 // ---- snapshot state machine --------------------------------------------------
-typedef enum logic [3:0] {
+typedef enum logic [4:0] {
 	IDLE, HEAD, REGS_SET, REGS_GET, RAM_RUN, RAM_W1, RAM_W2, BM_RUN, BM_W1, BM_W2,
-	FLAGS, TAIL, HDR, WRITE
+	FLAGS, TAIL, HDR, WRITE, TR_D1, TR_D2, TR_D3
 } st_t;
 
 st_t st = IDLE, after_write = IDLE;
@@ -189,6 +206,43 @@ task automatic write_word(input [24:0] a, input [63:0] d, input st_t next);
 	st          <= WRITE;
 endtask
 
+// ---- instruction trace: FIFO in, ring words out ---------------------------
+reg  [31:0] tr_fifo [0:1023];
+reg   [9:0] tr_wp = 0, tr_rp = 0, tr_ra = 0;
+wire  [9:0] tr_count = tr_wp - tr_rp;
+reg  [31:0] tr_q, tr_lo;
+reg  [15:0] tr_drops = 0;
+reg  [RING_W-1:0] ring_ptr = 0;
+reg         marker_pend = 0, draining = 0, frame_pend = 0;
+reg  [15:0] marker_frame = 0;
+// a vblank edge is taken while idle or while a trace drain write is in flight
+wire        accept = frame_start && (st == IDLE || draining);
+
+always @(posedge clk) begin
+	tr_q <= tr_fifo[tr_ra];
+	if (reset) begin
+		tr_wp <= 0; tr_rp <= 0; tr_drops <= 0; marker_pend <= 0;
+	end
+	else if (TRACE != 0) begin
+		if (accept) begin
+			marker_pend  <= 1;
+			marker_frame <= frame[15:0] + 16'd1;
+		end
+		if (trace_we || marker_pend) begin
+			if (tr_count == 10'd1023) begin
+				if (tr_drops != 16'hFFFF) tr_drops <= tr_drops + 16'd1;
+			end
+			else begin
+				tr_fifo[tr_wp] <= trace_we ? {(trace_cyc == 16'hFFFF) ? 16'hFFFE : trace_cyc, trace_pc}
+				                           : {16'hFFFF, marker_frame};
+				tr_wp <= tr_wp + 10'd1;
+			end
+			if (!trace_we) marker_pend <= 0;   // the marker went (or was dropped)
+		end
+		if (st == TR_D3) tr_rp <= tr_rp + 10'd2;
+	end
+end
+
 always @(posedge clk) begin
 	ddr_req <= 0;
 	p1_v    <= 0;
@@ -196,18 +250,26 @@ always @(posedge clk) begin
 	if (p2_v) acc[p2_b*8 +: 8] <= p2_src ? bm_data : ram_rd_data;
 
 	if (reset) begin
-		st       <= IDLE;
-		ram_hold <= 0;
-		frame    <= 0;
+		st         <= IDLE;
+		ram_hold   <= 0;
+		frame      <= 0;
+		frame_pend <= 0;
+		draining   <= 0;
+		ring_ptr   <= 0;
 	end
-	else case (st)
+	else begin
 
-	IDLE: if (frame_start) begin
-		frame     <= frame + 32'd1;
-		slot_base <= SLOT0_WORD + {23'd0, next_slot} * SLOT_WORDS;
-		idx       <= 0;
-		byte_idx  <= 0;
-		hdr_idx   <= 0;
+	// The snapshot's inputs are taken on the vblank edge itself, also when a
+	// trace drain write is still in flight (a few clocks); the state machine
+	// picks the frame up once it is back in IDLE. An edge during a snapshot is
+	// dropped, as before.
+	if (accept) begin
+		frame      <= frame + 32'd1;
+		slot_base  <= SLOT0_WORD + {23'd0, next_slot} * SLOT_WORDS;
+		idx        <= 0;
+		byte_idx   <= 0;
+		hdr_idx    <= 0;
+		frame_pend <= 1;
 		if (enable) begin
 			ram_hold      <= 1;
 			snap_regs     <= cpu_regs;
@@ -220,9 +282,31 @@ always @(posedge clk) begin
 			snap_j3       <= (PAD_COUNT == 4) ? joy3_latched : 8'd0;
 			snap_j4       <= (PAD_COUNT == 4) ? joy4_latched : 8'd0;
 			snap_bus_ok   <= bus_free;
-			st            <= HEAD;
 		end
-		else st <= HDR;
+	end
+
+	case (st)
+
+	IDLE: begin
+		draining <= 0;
+		if (frame_pend) begin
+			frame_pend <= 0;
+			st         <= st_t'(enable ? HEAD : HDR);
+		end
+		else if (TRACE != 0 && tr_count >= 10'd2) begin
+			draining <= 1;
+			tr_ra    <= tr_rp;
+			st       <= TR_D1;
+		end
+	end
+
+	// trace drain: two FIFO entries into one ring word. The FIFO read is
+	// registered: the address set at clock k has its data in tr_q at k+2.
+	TR_D1: begin tr_ra <= tr_rp + 10'd1; st <= TR_D2; end
+	TR_D2: begin tr_lo <= tr_q;          st <= TR_D3; end
+	TR_D3: begin
+		ring_ptr <= ring_ptr + 1'd1;
+		write_word(RING_WORD + 25'(ring_ptr), {tr_q, tr_lo}, IDLE);
 	end
 
 	// slot words 0, 1, 3 (word 2 carries flags known only at the end)
@@ -297,9 +381,10 @@ always @(posedge clk) begin
 		case (hdr_idx)
 		3'd0: write_word(HEADER_WORD + 25'd0, MAGIC, HDR);
 		3'd1: write_word(HEADER_WORD + 25'd1, {SLOT_SIZE, LAYOUT}, HDR);
-		3'd2: write_word(HEADER_WORD + 25'd3, {24'd0, replay_state, 31'd0, enable}, HDR);
+		3'd2: write_word(HEADER_WORD + 25'd3, {24'd0, replay_state, 30'd0, 1'(TRACE != 0), enable}, HDR);
 		3'd3: write_word(HEADER_WORD + 25'd4, {29'd0, sys_type, clk_hz}, HDR);
 		3'd4: write_word(HEADER_WORD + 25'd5, {replay_entry_bytes, 8'd64, 8'(REGS_KIND), 8'(PAD_COUNT), 32'(RAM_BYTES)}, HDR);
+		3'd5: write_word(HEADER_WORD + 25'd6, {8'((TRACE != 0) ? RING_W : 0), 8'd0, tr_drops, 32'(ring_ptr)}, HDR);
 		default: write_word(HEADER_WORD + 25'd2, {32'd4, frame}, IDLE);
 		endcase
 	end
@@ -308,6 +393,7 @@ always @(posedge clk) begin
 
 	default: st <= IDLE;
 	endcase
+	end
 end
 
 endmodule
