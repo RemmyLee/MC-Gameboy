@@ -182,6 +182,7 @@ typedef enum logic [4:0] {
 } st_t;
 
 st_t st = IDLE, after_write = IDLE;
+st_t resume = IDLE;   // where a trace drain returns to: IDLE, or the snapshot state it interrupted
 
 reg [63:0] snap_regs;
 reg  [8:0] snap_scanline, snap_cycle;
@@ -296,6 +297,7 @@ always @(posedge clk) begin
 		end
 		else if (TRACE != 0 && tr_count >= 10'd2) begin
 			draining <= 1;
+			resume   <= IDLE;
 			tr_ra    <= tr_rp;
 			st       <= TR_D1;
 		end
@@ -307,7 +309,7 @@ always @(posedge clk) begin
 	TR_D2: begin tr_lo <= tr_q;          st <= TR_D3; end
 	TR_D3: begin
 		ring_ptr <= ring_ptr + 1'd1;
-		write_word(RING_WORD + 25'(ring_ptr), {tr_q, tr_lo}, IDLE);
+		write_word(RING_WORD + 25'(ring_ptr), {tr_q, tr_lo}, resume);
 	end
 
 	// slot words 0, 1, 3 (word 2 carries flags known only at the end)
@@ -390,7 +392,19 @@ always @(posedge clk) begin
 		endcase
 	end
 
-	WRITE: if (ddr_ready) st <= after_write;
+	// A snapshot holds the DDR path for ~13.8k CPU cycles a frame and the game
+	// fetches an opcode every ~9: the FIFO (1023 entries) filled at ~9.1k and the
+	// rest of the window was lost (Aladdin, 2026-09-08). So while a snapshot is in
+	// progress and the FIFO is half full, drain writes go first; the snapshot
+	// resumes when the FIFO is below half again.
+	WRITE: if (ddr_ready) begin
+		if (TRACE != 0 && after_write != IDLE && tr_count >= 10'd512) begin
+			resume <= after_write;
+			tr_ra  <= tr_rp;
+			st     <= TR_D1;
+		end
+		else st <= after_write;
+	end
 
 	default: st <= IDLE;
 	endcase

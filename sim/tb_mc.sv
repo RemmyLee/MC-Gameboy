@@ -23,7 +23,7 @@ localparam W_BM      = 72 + RAM_WORDS;
 localparam W_TAIL    = W_BM + BM_WORDS;
 localparam [RAM_ADDR_W-1:0] LAST = {RAM_ADDR_W{1'b1}};   // the highest RAM address
 localparam integer RING = 512 + 4 * SLOT_WORDS;           // the trace ring sits after the slots (64 words)
-localparam integer WIN = RING + 64;                        // DDR words the sink records
+localparam integer WIN = RING + 1024;                      // DDR words the sink records (the ring is 1024 words)
 localparam [63:0] MAGIC = (RAM_ADDR_W == 11) ? 64'h01005345_4E2D434D : 64'h01000042_472D434D;   // "MC-NES\0\1" / "MC-GB\0\0\1"
 
 reg clk = 0;
@@ -83,7 +83,7 @@ task fetch(input [15:0] pc, input [15:0] cyc);
 endtask
 
 mc_telemetry #(.MAGIC(MAGIC), .RAM_ADDR_W(RAM_ADDR_W), .PAD_COUNT(PAD_COUNT), .REGS_KIND((PAD_COUNT == 4) ? 1 : 0), .SLOT_WORDS(SLOT_WORDS),
-	.TRACE(TRACE), .RING_WORD(25'h1800000 + RING), .RING_W(6)) dut (
+	.TRACE(TRACE), .RING_WORD(25'h1800000 + RING), .RING_W(10)) dut (
 	.clk(clk), .reset(reset), .enable(enable), .vblank(vblank), .scanline(scanline), .cycle(cycle),
 	.trace_we(tr_we), .trace_pc(tr_pc), .trace_cyc(tr_cyc),
 	.clk_hz(32'd21477272), .sys_type(3'd0), .cpu_regs(cpu_regs),
@@ -221,7 +221,7 @@ initial begin
 		repeat (20) @(posedge clk);
 		check("ring w2 markers 5,6", ddr[RING+2], {16'hFFFF, 16'd6, 16'hFFFF, 16'd5});
 		check("hdr h6 ptr after frame 6", ddr[HDR+6][31:0], 32'd2);
-		check("hdr h6 ring size", ddr[HDR+6][63:56], 8'd6);
+		check("hdr h6 ring size", ddr[HDR+6][63:56], 8'd10);
 		check("hdr h3 trace bit", ddr[HDR+3][1], 1'b1);
 		fetch(16'h0100, 16'd10);
 		fetch(16'h0103, 16'd14);
@@ -234,6 +234,29 @@ initial begin
 		check("ring w4 fetch + marker 7", ddr[RING+4], {16'hFFFF, 16'd7, 16'hFFFE, 16'h2000});
 		check("hdr h6 ptr after frame 7", ddr[HDR+6][31:0], 32'd4);
 		check("frame 7 slot tail", ddr[SLOT0 + 3*SLOT_WORDS + W_TAIL][31:0], 32'd7);
+		// ---- 700 fetches during frame 8's snapshot: the FIFO (1023 entries) must
+		// not lose any, the snapshot must still complete, and the ring holds
+		// marker 8 then the fetches in order (the drain interleaves with the
+		// snapshot once the FIFO is half full).
+		fork
+			frame_tick;
+			begin
+				repeat (40) @(posedge clk);
+				for (i = 0; i < 700; i = i + 1) fetch(16'h3000 + i[15:0], 16'd100 + i[15:0]);
+			end
+		join
+		wait (dut.st == dut.IDLE && dut.tr_count < 2);
+		repeat (20) @(posedge clk);
+		check("frame 8 slot tail", ddr[SLOT0 + 0*SLOT_WORDS + W_TAIL][31:0], 32'd8);
+		check("hdr h6 drops after frame 8", ddr[HDR+6][47:32], 16'd0);
+		check("ring w5 marker 8 + fetch 0", ddr[RING+5], {16'd100, 16'h3000, 16'hFFFF, 16'd8});
+		for (i = 6; i < 355; i = i + 1)
+			if (ddr[RING+i] !== {16'(100 + 2*(i-5)), 16'(16'h3000 + 2*(i-5)), 16'(100 + 2*(i-5) - 1), 16'(16'h3000 + 2*(i-5) - 1)}) begin
+				$display("FAIL ring word %0d during the snapshot: got %h", i, ddr[RING+i]);
+				errors = errors + 1;
+			end
+		check("fetch 699 waits for a pair", ddr_seen[RING+355], 0);
+		check("ring ptr after the drain", dut.ring_ptr, 10'd355);
 	end
 	else begin
 		check("hdr h3 no trace", ddr[HDR+3][1], 1'b0);
