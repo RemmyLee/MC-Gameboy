@@ -103,6 +103,7 @@ module mc_replay
 	output reg  [7:0] p4 = 0,
 	output reg [31:0] index = 0,   // entry being presented
 	output reg  [7:0] state = 0,
+	output            gambatte,     // header w2 bit 5 of the armed movie: Gambatte timing compat in the core
 	output reg  [7:0] gen = 0,     // generation of the last accepted arm; 0 = none yet
 	output      [7:0] entry_bytes, // ENTRY_BYTES, for the telemetry header
 	output reg  [1:0] sys_mode = 0 // header w2 [4:3] of the last accepted arm
@@ -127,6 +128,7 @@ localparam        POLL_W    = $clog2(POLL_CLKS + 1);
 reg [POLL_W-1:0] poll_cnt = 0;
 reg        vblank_d = 0;
 reg        cyc_mode = 0;  // header w2 bit 5: Gambatte frames
+assign gambatte = cyc_mode;
 reg        gb_frame = 0;  // one clock: a Gambatte frame ended
 wire       frame_start = cyc_mode ? gb_frame : (vblank & ~vblank_d);
 reg        reset_d = 1;

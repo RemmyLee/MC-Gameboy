@@ -98,6 +98,8 @@ module gb (
 	output        mc_fetch,          // one clock per opcode fetch (M1 read, not the interrupt acknowledge)
 	output [15:0] mc_pc,             // the address of that fetch
 	output        mc_vblank_irq,     // the PPU's vblank interrupt line (video.v vblank_l): its rise is the mode-1 time
+	input         mc_gambatte,       // Gambatte timing compat (a Gambatte movie is armed): the vblank and STAT
+	                                 // interrupt flags rise 2 cycles later, LY reads change 5 cycles later (24r)
 	output        mc_video_irq,      // the PPU's STAT interrupt line (video.v irq)
 	output        mc_rd_we,          // one clock per STAT or LY read, at the CPU clock the T80 latches the data (TState 3)
 	output  [1:0] mc_rd_kind,        // 1: STAT, 2: LY
@@ -665,6 +667,13 @@ assign mc_vblank_irq = vblank_irq;
 wire timer_irq;
 
 reg old_vblank_irq, old_video_irq, old_timer_irq, old_serial_irq;
+reg  mc_vbl_d1 = 0, mc_vbl_d2 = 0, mc_vid_d1 = 0, mc_vid_d2 = 0;
+always @(posedge clk_sys) if (ce_cpu) begin
+	mc_vbl_d1 <= vblank_irq; mc_vbl_d2 <= mc_vbl_d1;
+	mc_vid_d1 <= video_irq;  mc_vid_d2 <= mc_vid_d1;
+end
+wire mc_vblank_c = mc_gambatte ? mc_vbl_d2 : vblank_irq;
+wire mc_video_c  = mc_gambatte ? mc_vid_d2 : video_irq;
 reg old_ack = 0;
 
 assign SS_Top_BACK[11: 7] = ie_r[4:0];
@@ -691,12 +700,18 @@ always @(negedge clk_sys) begin //negedge to trigger interrupt earlier
 
 		// "When an interrupt signal changes from low to high,
 		//  then the corresponding bit in the IF register becomes set."
-		old_vblank_irq <= vblank_irq;
-		if(~old_vblank_irq & vblank_irq) if_r[0] <= 1'b1;
+		// Gambatte compat: libgambatte flags the vblank and LYC interrupts 2 cycles
+		// before the line start and dispatches at the first instruction boundary at
+		// or after that; this core's lines rise 4 cycles before the line start and
+		// the CPU takes them one boundary earlier when a boundary falls in between
+		// (Aladdin 7263M, measured with the trace ring, 2026-09-08). Two cycles later
+		// puts the flag where libgambatte has it.
+		old_vblank_irq <= mc_vblank_c;
+		if(~old_vblank_irq & mc_vblank_c) if_r[0] <= 1'b1;
 	
 		// video irq already is a 1 clock event
-		old_video_irq <= video_irq;
-		if(~old_video_irq & video_irq) if_r[1] <= 1'b1;
+		old_video_irq <= mc_video_c;
+		if(~old_video_irq & mc_video_c) if_r[1] <= 1'b1;
 		
 		// timer_irq already is a 1 clock event
 		old_timer_irq <= timer_irq;
@@ -799,6 +814,7 @@ video video (
 	.cpu_do      ( video_do      ),
 	.mc_vcnt     ( mc_vcnt       ),
 	.mc_hcyc     ( mc_hcyc       ),
+	.mc_gambatte ( mc_gambatte   ),
 
 	.cpu_phi      ( cpu_phi       ),
 	.cpu_phi_r_ce ( cpu_phi_r_ce  ),

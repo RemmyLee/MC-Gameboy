@@ -40,6 +40,7 @@ module video (
 	output [7:0] cpu_do,
 	output [7:0] mc_vcnt,        // MiSTer Control: the PPU's line counter (v_cnt)
 	output [8:0] mc_hcyc,        // MiSTer Control: the PPU's cycle in the line, 0-455 ({h_cnt, h_div_cnt})
+	input        mc_gambatte,    // MiSTer Control: Gambatte timing compat (LY reads change 5 cycles later)
 
 	input cpu_phi,
 	input cpu_phi_r_ce,
@@ -182,6 +183,15 @@ reg [1:0] h_div_cnt;        // Divide by 4
 reg [7:0] v_cnt;            // max 153
 wire [7:0] ly = v_cnt;
 assign mc_vcnt = v_cnt;
+// Gambatte compat: libgambatte's LY read shows the next line from 5 cycles before
+// the line start (video.h getLyReg); this core's v_cnt steps 2 cycles before it
+// and the CPU latches 2 cycles after its read cycle, so the read value changes
+// 5 cycles earlier than libgambatte's. The LYC compare keeps the raw counter.
+reg [7:0] ly_d [0:4];
+always @(posedge clk) if (ce) begin
+	ly_d[0] <= v_cnt; ly_d[1] <= ly_d[0]; ly_d[2] <= ly_d[1]; ly_d[3] <= ly_d[2]; ly_d[4] <= ly_d[3];
+end
+wire [7:0] ly_read = mc_gambatte ? ly_d[4] : ly;
 assign mc_hcyc = {h_cnt, h_div_cnt};
 
 // ff45 line counter compare
@@ -583,7 +593,7 @@ assign cpu_do =
 	(cpu_addr == 8'h41)?{1'b1,stat[6:3], lyc_match_l, mode}:
 	(cpu_addr == 8'h42)?scy:
 	(cpu_addr == 8'h43)?scx:
-	(cpu_addr == 8'h44)?ly:
+	(cpu_addr == 8'h44)?ly_read:
 	(cpu_addr == 8'h45)?lyc:
 	(cpu_addr == 8'h46)?dma:
 	(cpu_addr == 8'h47)?bgp:

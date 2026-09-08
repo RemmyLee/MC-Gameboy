@@ -293,7 +293,7 @@ wire [15:0] mc_wr_addr;
 wire  [7:0] mc_wr_data;
 
 // replay
-wire        mc_rp_active;
+wire        mc_rp_active, mc_gambatte;
 wire  [7:0] mc_rp_p1, mc_rp_p2, mc_rp_p3, mc_rp_p4, mc_rp_state, mc_rp_gen, mc_rp_entry_bytes;
 wire        mc_rp_armed = (mc_rp_state == 8'd1) || (mc_rp_state == 8'd2);
 wire  [1:0] mc_rp_sys;   // replay header w2 [4:3]: 0 menu, 1 DMG, 2 GBC, 3 SGB
@@ -618,6 +618,7 @@ gb gb (
 	.mc_fetch      ( mc_fetch     ),
 	.mc_pc         ( mc_pc        ),
 	.mc_vblank_irq ( mc_vblank_irq ),
+	.mc_gambatte   ( mc_gambatte  ),
 	.mc_video_irq  ( mc_video_irq ),
 	.mc_rd_we      ( mc_rd_we     ),
 	.mc_rd_kind    ( mc_rd_kind   ),
@@ -1291,6 +1292,7 @@ mc_replay #(.ENTRY_BYTES(8), .CLK_HZ(32'd33554432)) mc_replay
 	.ddr_dout(mc_rd_dout),
 	.ddr_ready(mc_rd_ready),
 	.active(mc_rp_active),
+	.gambatte(mc_gambatte),
 	.p1(mc_rp_p1),
 	.p2(mc_rp_p2),
 	.p3(mc_rp_p3),
