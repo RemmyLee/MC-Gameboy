@@ -613,7 +613,7 @@ gb gb (
 	.sdram_rd    ( sdram_rd   ),
 
 	.boot_gba_en    ( boot_gba_available && status[37] ),
-	.fast_boot_en   ( fastboot_available && status[42] ),
+	.fast_boot_en   ( fastboot_available && (status[42] || mc_sys_ovr != 2'd0) ),   // a movie always gets the short boot the offsets were measured on
 
 	.cgb_boot_download ( cgb_boot_download ),
 	.dmg_boot_download ( dmg_boot_download ),
