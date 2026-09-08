@@ -1394,7 +1394,7 @@ mc_telemetry #(
 	.PAD_COUNT(4),
 	.REGS_KIND(1),                   // no packed CPU word: the registers are on the bus (reg_savestates.vhd index 1..5)
 	.SLOT_WORDS(25'd9344),           // 74752 byte slots (>= 73 + 65536 * 9 / 64 words)
-	.TRACE(1)                        // instruction trace ring at 0x3C100000, 8 MB
+	.TRACE(1)                        // instruction trace ring at 0x3D000000, 8 MB (the replay buffer is at 0x3C100000)
 ) mc_telemetry
 (
 	.clk(clk_sys),

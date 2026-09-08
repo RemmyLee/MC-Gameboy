@@ -27,7 +27,8 @@
 //       With TRACE = 1 (h3 bit 1 set) the core streams an instruction trace:
 //       every opcode fetch as {cycle[15:0] since the frame's vblank edge,
 //       PC[15:0]}, two per 64 bit word (the earlier in [31:0]), into a ring of
-//       2^RING_W words at RING_WORD; a marker {16'hFFFF, frame[15:0]} precedes
+//       2^RING_W words at RING_WORD (0x3D000000, above the replay buffer at
+//       0x3C100000); a marker {16'hFFFF, frame[15:0]} precedes
 //       a frame's first fetch (a real cycle of 0xFFFF is written 0xFFFE).
 //       Fetches queue in a 1024 entry FIFO while a snapshot holds the DDR port
 //       and drain between snapshots.
@@ -76,7 +77,7 @@ module mc_telemetry
 	parameter [24:0] HEADER_WORD = 25'h1800000,           // (0x3C000000 - 0x30000000) >> 3
 	parameter [24:0] SLOT0_WORD  = 25'h1800200,           // (0x3C001000 - 0x30000000) >> 3
 	parameter        TRACE       = 0,                     // 1: stream the instruction trace (h3 bit 1, h6)
-	parameter [24:0] RING_WORD   = 25'h1820000,           // (0x3C100000 - 0x30000000) >> 3
+	parameter [24:0] RING_WORD   = 25'h1A00000,           // (0x3D000000 - 0x30000000) >> 3; the replay buffer is at 0x3C100000
 	parameter        RING_W      = 20                     // ring size, log2 words (8 MB)
 )
 (
