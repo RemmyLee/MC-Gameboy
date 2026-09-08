@@ -83,6 +83,20 @@ cycle (about 3,300 writes in that time).
 
 ## Reference numbers
 
+`MC-Gameboy_20260908g.rbf` (commit `f8e8ca7`, default seed, 2026-09-07, `out/MC-Gameboy_20260908g.txt`):
+build f plus the loadable DMG boot ROM slot (`P4FC5,BIN,Load DMG boot ROM`, ioctl index 5):
+a movie launch loads the boot ROM the emulator ran before the cartridge, offset 0.
+
+| Item | Value |
+|---|---|
+| Wall time | 880 s on the 3960X |
+| Logic (ALMs) | 22,296 / 41,910 (53%) |
+| Registers | 28,914 |
+| RAM blocks | 493 / 553 (89%) |
+| Setup slack, clk_sys / clk_ram / tightest (HDMI PLL) | 1.549 ns / 2.943 ns / 0.250 ns (TNS 0) |
+| Critical warnings | 0 |
+| `MC-Gameboy_20260908g.rbf` | 4,009,020 bytes, SHA-256 `7f07e14c33fa01befb33f6d3a716d55d6b1203bc413d6a8be1ddc6d461239c1c` |
+
 `MC-Gameboy_20260908f.rbf` (commit `07502bb`, default seed, 2026-09-07, `out/MC-Gameboy_20260908f.txt`):
 build e plus fast boot forced while a movie is armed (the DMG boot ROM's logo animation
 otherwise adds about 300 frames when Fast boot is off in the menu).
